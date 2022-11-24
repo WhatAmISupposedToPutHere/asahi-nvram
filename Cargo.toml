@@ -1,16 +1,10 @@
-[package]
-name = "asahi-nvram"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+members = [
+    "nvram",
+    "asahi-nvram"
+]
 
-[dependencies]
-adler32 = "1"
-
-[dependencies.clap]
-version = "3"
-features = ["cargo"]
 
 [profile.release]
 lto = true

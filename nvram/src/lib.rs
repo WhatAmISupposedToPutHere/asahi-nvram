@@ -1,20 +1,17 @@
 use std::{
-    env,
     fmt::{Debug, Formatter},
     collections::HashMap,
-    fs::OpenOptions,
-    io::{Read, Write, Seek},
     borrow::Cow
 };
 
-struct UnescapeIter<I> {
+pub struct UnescapeVal<I> {
     inner: I,
     esc_out: u8,
     remaining: u8
 }
 
-impl<I> UnescapeIter<I> where I: Iterator<Item=u8> {
-    fn new(inner: I) -> Self {
+impl<I> UnescapeVal<I> where I: Iterator<Item=u8> {
+    pub fn new(inner: I) -> Self {
         Self {
             inner,
             esc_out: 0,
@@ -24,7 +21,7 @@ impl<I> UnescapeIter<I> where I: Iterator<Item=u8> {
 }
 
 
-impl<I> Iterator for UnescapeIter<I> where I: Iterator<Item=u8> {
+impl<I> Iterator for UnescapeVal<I> where I: Iterator<Item=u8> {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
         if self.remaining != 0 {
@@ -50,10 +47,10 @@ impl<I> Iterator for UnescapeIter<I> where I: Iterator<Item=u8> {
 }
 
 #[derive(Clone)]
-struct CHRPHeader<'a> {
-    name: &'a [u8],
-    size: u16,
-    signature: u8
+pub struct CHRPHeader<'a> {
+    pub name: &'a [u8],
+    pub size: u16,
+    pub signature: u8
 }
 
 impl Debug for CHRPHeader<'_> {
@@ -98,20 +95,15 @@ fn slice_find<T: PartialEq<T>>(ts: &[T], t: &T) -> Option<usize> {
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     ParseError,
     SectionTooBig,
-    MissingPartitionName,
-    MissingValue,
-    VariableNotFound,
-    UnknownPartition,
-    InvalidHex
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
 impl CHRPHeader<'_> {
-    fn parse<'a>(nvr: &'a [u8]) -> Result<CHRPHeader<'a>> {
+    pub fn parse<'a>(nvr: &'a [u8]) -> Result<CHRPHeader<'a>> {
         let signature = nvr[0];
         let cksum = nvr[1];
         let size = u16::from_le_bytes(nvr[2..4].try_into().unwrap());
@@ -132,7 +124,7 @@ impl CHRPHeader<'_> {
         chrp_checksum_add(cksum, (self.size >> 8) as u8)
     }
 
-    fn serialize(&self, v: &mut Vec<u8>) {
+    pub fn serialize(&self, v: &mut Vec<u8>) {
         v.push(self.signature);
         v.push(self.checksum());
         v.extend_from_slice(&self.size.to_le_bytes());
@@ -144,13 +136,13 @@ impl CHRPHeader<'_> {
 }
 
 #[derive(Clone)]
-struct Variable<'a> {
-    key: &'a [u8],
-    value: Cow<'a, [u8]>
+pub struct Variable<'a> {
+    pub key: &'a [u8],
+    pub value: Cow<'a, [u8]>
 }
 
 impl Variable<'_> {
-    fn new<'a>(key: &'a [u8], value: &'a [u8]) -> Variable<'a> {
+    pub fn new<'a>(key: &'a [u8], value: &'a [u8]) -> Variable<'a> {
         Variable {
             key,
             value: Cow::Borrowed(value)
@@ -159,13 +151,13 @@ impl Variable<'_> {
 }
 
 #[derive(Clone)]
-struct Section<'a> {
-    header: CHRPHeader<'a>,
-    values: HashMap<&'a [u8], Variable<'a>>
+pub struct Section<'a> {
+    pub header: CHRPHeader<'a>,
+    pub values: HashMap<&'a [u8], Variable<'a>>
 }
 
 impl Section<'_> {
-    fn parse<'a>(mut nvr: &'a [u8]) -> Result<Section<'a>> {
+    pub fn parse<'a>(mut nvr: &'a [u8]) -> Result<Section<'a>> {
         let header = CHRPHeader::parse(&nvr[..16])?;
         nvr = &nvr[16..];
         let mut values = HashMap::new();
@@ -192,7 +184,7 @@ impl Section<'_> {
     fn size_bytes(&self) -> usize {
         return (self.header.size * 16) as usize;
     }
-    fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
+    pub fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
         let start_size = v.len();
         self.header.serialize(v);
         for val in self.values.values() {
@@ -217,7 +209,7 @@ impl Debug for SectionDebug<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_map();
         for v in self.0.values.values() {
-            m.entry(&String::from_utf8_lossy(v.key).into_owned(), &String::from_utf8_lossy(&UnescapeIter::new(v.value.iter().map(|x| *x)).collect::<Vec<_>>()).into_owned());
+            m.entry(&String::from_utf8_lossy(v.key).into_owned(), &String::from_utf8_lossy(&UnescapeVal::new(v.value.iter().map(|x| *x)).collect::<Vec<_>>()).into_owned());
         }
         m.finish()
     }
@@ -235,15 +227,15 @@ impl Debug for Section<'_> {
 
 
 #[derive(Debug, Clone)]
-struct Partition<'a> {
-    header: CHRPHeader<'a>,
-    generation: u32,
-    common: Section<'a>,
-    system: Section<'a>
+pub struct Partition<'a> {
+    pub header: CHRPHeader<'a>,
+    pub generation: u32,
+    pub common: Section<'a>,
+    pub system: Section<'a>
 }
 
 impl Partition<'_> {
-    fn parse<'a>(nvr: &'a [u8]) -> Result<Partition<'a>> {
+    pub fn parse<'a>(nvr: &'a [u8]) -> Result<Partition<'a>> {
         let header = CHRPHeader::parse(&nvr[..16])?;
         if header.name != b"nvram" {
             return Err(Error::ParseError);
@@ -280,7 +272,7 @@ impl Partition<'_> {
     fn size_bytes(&self) -> usize {
         return 32 + self.common.size_bytes() + self.system.size_bytes()
     }
-    fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
+    pub fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
         self.header.serialize(v);
         v.extend_from_slice(&[0; 4]);
         let adler_start = v.len();
@@ -296,13 +288,13 @@ impl Partition<'_> {
 }
 
 #[derive(Debug)]
-struct Nvram<'a> {
-    partitions: [Partition<'a>; 2],
-    active: usize
+pub struct Nvram<'a> {
+    pub partitions: [Partition<'a>; 2],
+    pub active: usize
 }
 
-impl Nvram<'_> {
-    fn parse<'a>(nvr: &'a [u8]) -> Result<Nvram<'a>> {
+impl<'a> Nvram<'a> {
+    pub fn parse<'b>(nvr: &'b [u8]) -> Result<Nvram<'b>> {
         let p1 = Partition::parse(&nvr)?;
         let p2 = Partition::parse(&nvr[p1.size_bytes()..])?;
         let active = if p1.generation > p2.generation { 0 } else { 1 };
@@ -311,128 +303,19 @@ impl Nvram<'_> {
             partitions, active
         })
     }
-    fn serialize(&self) -> Result<Vec<u8>> {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
         let mut v = Vec::with_capacity(self.partitions[0].size_bytes() * 2);
         self.partitions[0].serialize(&mut v)?;
         self.partitions[1].serialize(&mut v)?;
         Ok(v)
     }
-    fn prepare_for_write(&mut self) {
+    pub fn prepare_for_write(&mut self) {
         let inactive = 1 - self.active;
         self.partitions[inactive] = self.partitions[self.active].clone();
         self.partitions[inactive].generation += 1;
         self.active = inactive;
     }
-}
-
-fn main() {
-    real_main().unwrap();
-}
-
-fn real_main() -> Result<()> {
-    let matches = clap::command!()
-        .arg(clap::arg!(-d --device <DEVICE> "Path to the nvram device."))
-        .subcommand(
-            clap::Command::new("read")
-                .about("Read nvram variables")
-                .arg(clap::Arg::new("variable").multiple_values(true))
-        )
-        .subcommand(
-            clap::Command::new("delete")
-                .about("Delete nvram variables")
-                .arg(clap::Arg::new("variable").multiple_values(true))
-        )
-        .subcommand(
-            clap::Command::new("write")
-                .about("Write nvram variables")
-                .arg(clap::Arg::new("variable=value").multiple_values(true))
-        )
-        .get_matches();
-    let mut file = OpenOptions::new().read(true).write(true)
-        .open(matches.get_one::<String>("device").unwrap()).unwrap();
-    let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
-    match matches.subcommand() {
-        Some(("read", args)) => {
-            let vars = args.get_many::<String>("variable");
-            if vars.is_none() {
-                let part = &nv.partitions[nv.active];
-                for var in part.common.values.values() {
-                    print_var("common", var);
-                }
-                for var in part.system.values.values() {
-                    print_var("system", var);
-                }
-            } else {
-                for var in vars.unwrap() {
-                    let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    let v = part_by_name(part, &mut nv)?.values.get(name.as_bytes()).ok_or(Error::VariableNotFound)?;
-                    print_var(part, v);
-                }
-            }
-        },
-        Some(("write", args)) => {
-            let vars = args.get_many::<String>("variable=value");
-            nv.prepare_for_write();
-            for var in vars.unwrap_or_default() {
-                let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
-                let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.insert(name.as_bytes(), Variable {
-                    key: name.as_bytes(),
-                    value: Cow::Owned(read_var(value)?)
-                });
-            }
-            file.rewind().unwrap();
-            file.write_all(&nv.serialize()?).unwrap();
-        },
-        Some(("delete", args)) => {
-            let vars = args.get_many::<String>("variable");
-            nv.prepare_for_write();
-            for var in vars.unwrap_or_default() {
-                let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.remove(name.as_bytes());
-            }
-            file.rewind().unwrap();
-            file.write_all(&nv.serialize()?).unwrap();
-        },
-        _ => {}
+    pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
+        &mut self.partitions[self.active]
     }
-    Ok(())
-}
-
-fn part_by_name<'a, 'b, 'c>(name: &'a str, nv: &'c mut Nvram<'b>) -> Result<&'c mut Section<'b>> {
-    match name {
-        "common" => Ok(&mut nv.partitions[nv.active].common),
-        "system" => Ok(&mut nv.partitions[nv.active].system),
-        _ => Err(Error::UnknownPartition)
-    }
-}
-
-fn read_var(val: &str) -> Result<Vec<u8>> {
-    let val = val.as_bytes();
-    let mut ret = Vec::new();
-    let mut i = 0;
-    while i < val.len() {
-        if val[i] == b'%' {
-            ret.push(u8::from_str_radix(unsafe {std::str::from_utf8_unchecked(&val[i+1..i+3])}, 16).map_err(|_| Error::InvalidHex)?);
-            i += 2;
-        } else {
-            ret.push(val[i])
-        }
-        i += 1;
-    }
-    Ok(ret)
-}
-
-fn print_var(section: &str, var: &Variable) {
-    let mut value = String::new();
-    for c in UnescapeIter::new(var.value.iter().copied()) {
-        if (c as char).is_ascii() && !(c as char).is_ascii_control() {
-            value.push(c as char);
-        } else {
-            value.push_str(&format!("%{:02x}", c));
-        }
-    }
-    println!("{}:{}={}", section, String::from_utf8_lossy(var.key), value);
 }

@@ -1,0 +1,17 @@
+[package]
+name = "asahi-nvram"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nix = "0.25"
+
+[dependencies.nvram]
+path = "../nvram"
+
+[dependencies.clap]
+version = "3"
+features = ["cargo"]
+
