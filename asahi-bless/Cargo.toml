@@ -1,10 +1,13 @@
 [package]
-name = "nvram"
+name = "asahi-bless"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-adler32 = "1"
-nix = "0.25"
+uuid = "0.8"
+gpt = "3"
+
+[dependencies.nvram]
+path = "../nvram"

@@ -1,7 +1,9 @@
 use std::{
     fmt::{Debug, Formatter},
     collections::HashMap,
-    borrow::Cow
+    borrow::Cow,
+    fs::File,
+    os::unix::io::AsRawFd
 };
 
 pub struct UnescapeVal<I> {
@@ -295,8 +297,22 @@ pub struct Nvram<'a> {
 
 impl<'a> Nvram<'a> {
     pub fn parse<'b>(nvr: &'b [u8]) -> Result<Nvram<'b>> {
-        let p1 = Partition::parse(&nvr)?;
-        let p2 = Partition::parse(&nvr[p1.size_bytes()..])?;
+        let p1r = Partition::parse(&nvr);
+        let p2r = Partition::parse(&nvr[0x10000..]);
+        let p1;
+        let p2;
+        if p1r.is_err() && p2r.is_err() {
+            return Err(p1r.unwrap_err());
+        } else if p1r.is_err() {
+            p2 = p2r.unwrap();
+            p1 = p2.clone();
+        } else if p2r.is_err() {
+            p1 = p1r.unwrap();
+            p2 = p1.clone();
+        } else {
+            p1 = p1r.unwrap();
+            p2 = p2r.unwrap();
+        }
         let active = if p1.generation > p2.generation { 0 } else { 1 };
         let partitions = [p1, p2];
         Ok(Nvram {
@@ -318,4 +334,37 @@ impl<'a> Nvram<'a> {
     pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
         &mut self.partitions[self.active]
     }
+}
+
+
+#[repr(C)]
+pub struct EraseInfoUser {
+    start: u32,
+    length: u32
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct MtdInfoUser {
+    ty: u8,
+    flags: u32,
+    size: u32,
+    erasesize: u32,
+    writesize: u32,
+    oobsize: u32,
+    padding: u64
+}
+
+nix::ioctl_write_ptr!(mtd_mem_erase, b'M', 2, EraseInfoUser);
+nix::ioctl_read!(mtd_mem_get_info, b'M', 1, MtdInfoUser);
+
+pub fn erase_if_needed(file: &File, size: usize) {
+    if unsafe { mtd_mem_get_info(file.as_raw_fd(), &mut MtdInfoUser::default()) }.is_err() {
+        return;
+    }
+    let erase_info = EraseInfoUser {
+        start: 0,
+        length: size as u32
+    };
+    unsafe { mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap(); }
 }

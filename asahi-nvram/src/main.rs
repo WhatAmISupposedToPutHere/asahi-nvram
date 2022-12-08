@@ -1,14 +1,13 @@
 use std::{
     env,
     fmt::Debug,
-    fs::{OpenOptions, File},
+    fs::OpenOptions,
     io::{Read, Write, Seek},
     borrow::Cow,
-    os::unix::io::AsRawFd
 };
 
 use nvram::{
-    Nvram, Section, Variable, UnescapeVal
+    Nvram, Section, Variable, UnescapeVal, erase_if_needed
 };
 
 #[derive(Debug)]
@@ -39,7 +38,7 @@ fn main() {
 
 fn real_main() -> Result<()> {
     let matches = clap::command!()
-        .arg(clap::arg!(-d --device <DEVICE> "Path to the nvram device."))
+        .arg(clap::arg!(-d --device [DEVICE] "Path to the nvram device."))
         .subcommand(
             clap::Command::new("read")
                 .about("Read nvram variables")
@@ -56,8 +55,9 @@ fn real_main() -> Result<()> {
                 .arg(clap::Arg::new("variable=value").multiple_values(true))
         )
         .get_matches();
+    let default_name = "/dev/mtd0".to_owned();
     let mut file = OpenOptions::new().read(true).write(true)
-        .open(matches.get_one::<String>("device").unwrap()).unwrap();
+        .open(matches.get_one::<String>("device").unwrap_or(&default_name)).unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     let mut nv = Nvram::parse(&data)?;
@@ -147,36 +147,4 @@ fn print_var(section: &str, var: &Variable) {
         }
     }
     println!("{}:{}={}", section, String::from_utf8_lossy(var.key), value);
-}
-
-#[repr(C)]
-pub struct EraseInfoUser {
-    start: u32,
-    length: u32
-}
-
-#[repr(C)]
-#[derive(Default)]
-pub struct MtdInfoUser {
-    ty: u8,
-    flags: u32,
-    size: u32,
-    erasesize: u32,
-    writesize: u32,
-    oobsize: u32,
-    padding: u64
-}
-
-nix::ioctl_write_ptr!(mtd_mem_erase, b'M', 2, EraseInfoUser);
-nix::ioctl_read!(mtd_mem_get_info, b'M', 1, MtdInfoUser);
-
-fn erase_if_needed(file: &File, size: usize) {
-    if unsafe { mtd_mem_get_info(file.as_raw_fd(), &mut MtdInfoUser::default()) }.is_err() {
-        return;
-    }
-    let erase_info = EraseInfoUser {
-        start: 0,
-        length: size as u32
-    };
-    unsafe { mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap(); }
 }

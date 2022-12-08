@@ -2,7 +2,8 @@
 
 members = [
     "nvram",
-    "asahi-nvram"
+    "asahi-nvram",
+    "asahi-bless"
 ]
 
 
