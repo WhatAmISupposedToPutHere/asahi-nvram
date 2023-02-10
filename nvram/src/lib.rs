@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::{
     fmt::{Debug, Formatter},
     collections::HashMap,

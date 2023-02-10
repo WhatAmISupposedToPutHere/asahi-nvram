@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::{
     fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write, stdin, stdout},
