@@ -200,13 +200,13 @@ fn parse_bt_info(var: &Variable) -> Result<BtInfo> {
 fn format_mac(mac: &[u8; 6]) -> Result<String> {
     Ok(mac
         .iter()
-        .map(|x| format!("{:02X}", x))
+        .map(|x| format!("{x:02X}"))
         .collect::<Vec<String>>()
         .join(":"))
 }
 
 fn format_key(key: &[u8; 16]) -> Result<String> {
-    Ok(key.iter().map(|x| format!("{:02X}", x)).rev().collect())
+    Ok(key.iter().map(|x| format!("{x:02X}")).rev().collect())
 }
 
 fn print_btkeys(var: &Variable) -> Result<()> {

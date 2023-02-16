@@ -1,30 +1,35 @@
 // SPDX-License-Identifier: MIT
 use std::{
-    fmt::{Debug, Formatter},
-    collections::HashMap,
     borrow::Cow,
+    collections::HashMap,
+    fmt::{Debug, Formatter},
     fs::File,
-    os::unix::io::AsRawFd
+    os::unix::io::AsRawFd,
 };
 
 pub struct UnescapeVal<I> {
     inner: I,
     esc_out: u8,
-    remaining: u8
+    remaining: u8,
 }
 
-impl<I> UnescapeVal<I> where I: Iterator<Item=u8> {
+impl<I> UnescapeVal<I>
+where
+    I: Iterator<Item = u8>,
+{
     pub fn new(inner: I) -> Self {
         Self {
             inner,
             esc_out: 0,
-            remaining: 0
+            remaining: 0,
         }
     }
 }
 
-
-impl<I> Iterator for UnescapeVal<I> where I: Iterator<Item=u8> {
+impl<I> Iterator for UnescapeVal<I>
+where
+    I: Iterator<Item = u8>,
+{
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
         if self.remaining != 0 {
@@ -35,11 +40,7 @@ impl<I> Iterator for UnescapeVal<I> where I: Iterator<Item=u8> {
             if n != 0xFF {
                 return Some(n);
             }
-            let count = self.inner.next();
-            if count.is_none() {
-                return None;
-            }
-            let count = count.unwrap();
+            let count = self.inner.next()?;
             self.esc_out = if count & 0x80 == 0 { 0 } else { 0xFF };
             self.remaining = (count & 0x7F) - 1;
             Some(self.esc_out)
@@ -53,7 +54,7 @@ impl<I> Iterator for UnescapeVal<I> where I: Iterator<Item=u8> {
 pub struct CHRPHeader<'a> {
     pub name: &'a [u8],
     pub size: u16,
-    pub signature: u8
+    pub signature: u8,
 }
 
 impl Debug for CHRPHeader<'_> {
@@ -106,12 +107,16 @@ pub enum Error {
 type Result<T> = std::result::Result<T, Error>;
 
 impl CHRPHeader<'_> {
-    pub fn parse<'a>(nvr: &'a [u8]) -> Result<CHRPHeader<'a>> {
+    pub fn parse(nvr: &[u8]) -> Result<CHRPHeader<'_>> {
         let signature = nvr[0];
         let cksum = nvr[1];
         let size = u16::from_le_bytes(nvr[2..4].try_into().unwrap());
         let name = slice_rstrip(&nvr[4..16], &0);
-        let cand = CHRPHeader {name, size, signature};
+        let cand = CHRPHeader {
+            name,
+            size,
+            signature,
+        };
         if cand.checksum() != cksum {
             return Err(Error::ParseError);
         }
@@ -141,14 +146,14 @@ impl CHRPHeader<'_> {
 #[derive(Clone)]
 pub struct Variable<'a> {
     pub key: &'a [u8],
-    pub value: Cow<'a, [u8]>
+    pub value: Cow<'a, [u8]>,
 }
 
 impl Variable<'_> {
     pub fn new<'a>(key: &'a [u8], value: &'a [u8]) -> Variable<'a> {
         Variable {
             key,
-            value: Cow::Borrowed(value)
+            value: Cow::Borrowed(value),
         }
     }
 }
@@ -156,11 +161,11 @@ impl Variable<'_> {
 #[derive(Clone)]
 pub struct Section<'a> {
     pub header: CHRPHeader<'a>,
-    pub values: HashMap<&'a [u8], Variable<'a>>
+    pub values: HashMap<&'a [u8], Variable<'a>>,
 }
 
 impl Section<'_> {
-    pub fn parse<'a>(mut nvr: &'a [u8]) -> Result<Section<'a>> {
+    pub fn parse(mut nvr: &[u8]) -> Result<Section<'_>> {
         let header = CHRPHeader::parse(&nvr[..16])?;
         nvr = &nvr[16..];
         let mut values = HashMap::new();
@@ -180,12 +185,10 @@ impl Section<'_> {
             values.insert(key, Variable::new(key, &cand[(eq + 1)..]));
             nvr = &nvr[(zero + 1)..]
         }
-        Ok(Section {
-            header, values
-        })
+        Ok(Section { header, values })
     }
     fn size_bytes(&self) -> usize {
-        return (self.header.size * 16) as usize;
+        (self.header.size * 16) as usize
     }
     pub fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
         let start_size = v.len();
@@ -212,12 +215,17 @@ impl Debug for SectionDebug<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut m = f.debug_map();
         for v in self.0.values.values() {
-            m.entry(&String::from_utf8_lossy(v.key).into_owned(), &String::from_utf8_lossy(&UnescapeVal::new(v.value.iter().map(|x| *x)).collect::<Vec<_>>()).into_owned());
+            m.entry(
+                &String::from_utf8_lossy(v.key).into_owned(),
+                &String::from_utf8_lossy(
+                    &UnescapeVal::new(v.value.iter().copied()).collect::<Vec<_>>(),
+                )
+                .into_owned(),
+            );
         }
         m.finish()
     }
 }
-
 
 impl Debug for Section<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -228,17 +236,16 @@ impl Debug for Section<'_> {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Partition<'a> {
     pub header: CHRPHeader<'a>,
     pub generation: u32,
     pub common: Section<'a>,
-    pub system: Section<'a>
+    pub system: Section<'a>,
 }
 
 impl Partition<'_> {
-    pub fn parse<'a>(nvr: &'a [u8]) -> Result<Partition<'a>> {
+    pub fn parse(nvr: &[u8]) -> Result<Partition<'_>> {
         let header = CHRPHeader::parse(&nvr[..16])?;
         if header.name != b"nvram" {
             return Err(Error::ParseError);
@@ -247,7 +254,8 @@ impl Partition<'_> {
         let generation = u32::from_le_bytes(nvr[20..24].try_into().unwrap());
         let sec1 = Section::parse(&nvr[32..])?;
         let sec2 = Section::parse(&nvr[(32 + sec1.size_bytes())..])?;
-        let calc_adler = adler32::adler32(&nvr[20..(32 + sec1.size_bytes() + sec2.size_bytes())]).unwrap();
+        let calc_adler =
+            adler32::adler32(&nvr[20..(32 + sec1.size_bytes() + sec2.size_bytes())]).unwrap();
         if adler != calc_adler {
             return Err(Error::ParseError);
         }
@@ -267,13 +275,14 @@ impl Partition<'_> {
             return Err(Error::ParseError);
         }
         Ok(Partition {
-            header, generation,
+            header,
+            generation,
             common: com.unwrap(),
-            system: sys.unwrap()
+            system: sys.unwrap(),
         })
     }
     fn size_bytes(&self) -> usize {
-        return 32 + self.common.size_bytes() + self.system.size_bytes()
+        32 + self.common.size_bytes() + self.system.size_bytes()
     }
     pub fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
         self.header.serialize(v);
@@ -293,32 +302,31 @@ impl Partition<'_> {
 #[derive(Debug)]
 pub struct Nvram<'a> {
     pub partitions: [Partition<'a>; 2],
-    pub active: usize
+    pub active: usize,
 }
 
 impl<'a> Nvram<'a> {
-    pub fn parse<'b>(nvr: &'b [u8]) -> Result<Nvram<'b>> {
-        let p1r = Partition::parse(&nvr);
-        let p2r = Partition::parse(&nvr[0x10000..]);
+    pub fn parse(nvr: &[u8]) -> Result<Nvram<'_>> {
         let p1;
         let p2;
-        if p1r.is_err() && p2r.is_err() {
-            return Err(p1r.unwrap_err());
-        } else if p1r.is_err() {
-            p2 = p2r.unwrap();
-            p1 = p2.clone();
-        } else if p2r.is_err() {
-            p1 = p1r.unwrap();
-            p2 = p1.clone();
-        } else {
-            p1 = p1r.unwrap();
-            p2 = p2r.unwrap();
+        match (Partition::parse(nvr), Partition::parse(&nvr[0x10000..])) {
+            (Err(err), Err(_)) => return Err(err),
+            (Ok(p1r), Err(_)) => {
+                p1 = p1r;
+                p2 = p1.clone();
+            }
+            (Err(_), Ok(p2r)) => {
+                p2 = p2r;
+                p1 = p2.clone();
+            }
+            (Ok(p1r), Ok(p2r)) => {
+                p1 = p1r;
+                p2 = p2r;
+            }
         }
         let active = if p1.generation > p2.generation { 0 } else { 1 };
         let partitions = [p1, p2];
-        Ok(Nvram {
-            partitions, active
-        })
+        Ok(Nvram { partitions, active })
     }
     pub fn serialize(&self) -> Result<Vec<u8>> {
         let mut v = Vec::with_capacity(self.partitions[0].size_bytes() * 2);
@@ -337,11 +345,10 @@ impl<'a> Nvram<'a> {
     }
 }
 
-
 #[repr(C)]
 pub struct EraseInfoUser {
     start: u32,
-    length: u32
+    length: u32,
 }
 
 #[repr(C)]
@@ -353,7 +360,7 @@ pub struct MtdInfoUser {
     erasesize: u32,
     writesize: u32,
     oobsize: u32,
-    padding: u64
+    padding: u64,
 }
 
 nix::ioctl_write_ptr!(mtd_mem_erase, b'M', 2, EraseInfoUser);
@@ -365,7 +372,9 @@ pub fn erase_if_needed(file: &File, size: usize) {
     }
     let erase_info = EraseInfoUser {
         start: 0,
-        length: size as u32
+        length: size as u32,
     };
-    unsafe { mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap(); }
+    unsafe {
+        mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap();
+    }
 }

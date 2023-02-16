@@ -1,31 +1,29 @@
 // SPDX-License-Identifier: MIT
 use std::{
+    borrow::Cow,
     env,
     fmt::Debug,
     fs::OpenOptions,
-    io::{Read, Write, Seek},
-    borrow::Cow,
+    io::{Read, Seek, Write},
 };
 
-use nvram::{
-    Nvram, Section, Variable, UnescapeVal, erase_if_needed
-};
+use nvram::{erase_if_needed, Nvram, Section, UnescapeVal, Variable};
 
 #[derive(Debug)]
 enum Error {
-    ParseError,
+    Parse,
     SectionTooBig,
     MissingPartitionName,
     MissingValue,
     VariableNotFound,
     UnknownPartition,
-    InvalidHex
+    InvalidHex,
 }
 
 impl From<nvram::Error> for Error {
     fn from(e: nvram::Error) -> Self {
         match e {
-            nvram::Error::ParseError => Error::ParseError,
+            nvram::Error::ParseError => Error::Parse,
             nvram::Error::SectionTooBig => Error::SectionTooBig,
         }
     }
@@ -43,29 +41,41 @@ fn real_main() -> Result<()> {
         .subcommand(
             clap::Command::new("read")
                 .about("Read nvram variables")
-                .arg(clap::Arg::new("variable").multiple_values(true))
+                .arg(clap::Arg::new("variable").multiple_values(true)),
         )
         .subcommand(
             clap::Command::new("delete")
                 .about("Delete nvram variables")
-                .arg(clap::Arg::new("variable").multiple_values(true))
+                .arg(clap::Arg::new("variable").multiple_values(true)),
         )
         .subcommand(
             clap::Command::new("write")
                 .about("Write nvram variables")
-                .arg(clap::Arg::new("variable=value").multiple_values(true))
+                .arg(clap::Arg::new("variable=value").multiple_values(true)),
         )
         .get_matches();
     let default_name = "/dev/mtd0".to_owned();
-    let mut file = OpenOptions::new().read(true).write(true)
-        .open(matches.get_one::<String>("device").unwrap_or(&default_name)).unwrap();
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(matches.get_one::<String>("device").unwrap_or(&default_name))
+        .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     let mut nv = Nvram::parse(&data)?;
     match matches.subcommand() {
         Some(("read", args)) => {
             let vars = args.get_many::<String>("variable");
-            if vars.is_none() {
+            if let Some(vars) = vars {
+                for var in vars {
+                    let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
+                    let v = part_by_name(part, &mut nv)?
+                        .values
+                        .get(name.as_bytes())
+                        .ok_or(Error::VariableNotFound)?;
+                    print_var(part, v);
+                }
+            } else {
                 let part = nv.active_part_mut();
                 for var in part.common.values.values() {
                     print_var("common", var);
@@ -73,30 +83,27 @@ fn real_main() -> Result<()> {
                 for var in part.system.values.values() {
                     print_var("system", var);
                 }
-            } else {
-                for var in vars.unwrap() {
-                    let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    let v = part_by_name(part, &mut nv)?.values.get(name.as_bytes()).ok_or(Error::VariableNotFound)?;
-                    print_var(part, v);
-                }
             }
-        },
+        }
         Some(("write", args)) => {
             let vars = args.get_many::<String>("variable=value");
             nv.prepare_for_write();
             for var in vars.unwrap_or_default() {
                 let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
                 let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.insert(name.as_bytes(), Variable {
-                    key: name.as_bytes(),
-                    value: Cow::Owned(read_var(value)?)
-                });
+                part_by_name(part, &mut nv)?.values.insert(
+                    name.as_bytes(),
+                    Variable {
+                        key: name.as_bytes(),
+                        value: Cow::Owned(read_var(value)?),
+                    },
+                );
             }
             file.rewind().unwrap();
             let data = nv.serialize()?;
             erase_if_needed(&file, data.len());
             file.write_all(&data).unwrap();
-        },
+        }
         Some(("delete", args)) => {
             let vars = args.get_many::<String>("variable");
             nv.prepare_for_write();
@@ -108,17 +115,17 @@ fn real_main() -> Result<()> {
             let data = nv.serialize()?;
             erase_if_needed(&file, data.len());
             file.write_all(&data).unwrap();
-        },
+        }
         _ => {}
     }
     Ok(())
 }
 
-fn part_by_name<'a, 'b, 'c>(name: &'a str, nv: &'c mut Nvram<'b>) -> Result<&'c mut Section<'b>> {
+fn part_by_name<'a, 'b>(name: &str, nv: &'b mut Nvram<'a>) -> Result<&'b mut Section<'a>> {
     match name {
         "common" => Ok(&mut nv.active_part_mut().common),
         "system" => Ok(&mut nv.active_part_mut().system),
-        _ => Err(Error::UnknownPartition)
+        _ => Err(Error::UnknownPartition),
     }
 }
 
@@ -128,7 +135,13 @@ fn read_var(val: &str) -> Result<Vec<u8>> {
     let mut i = 0;
     while i < val.len() {
         if val[i] == b'%' {
-            ret.push(u8::from_str_radix(unsafe {std::str::from_utf8_unchecked(&val[i+1..i+3])}, 16).map_err(|_| Error::InvalidHex)?);
+            ret.push(
+                u8::from_str_radix(
+                    unsafe { std::str::from_utf8_unchecked(&val[i + 1..i + 3]) },
+                    16,
+                )
+                .map_err(|_| Error::InvalidHex)?,
+            );
             i += 2;
         } else {
             ret.push(val[i])
@@ -144,7 +157,7 @@ fn print_var(section: &str, var: &Variable) {
         if (c as char).is_ascii() && !(c as char).is_ascii_control() {
             value.push(c as char);
         } else {
-            value.push_str(&format!("%{:02x}", c));
+            value.push_str(&format!("%{c:02x}"));
         }
     }
     println!("{}:{}={}", section, String::from_utf8_lossy(var.key), value);
