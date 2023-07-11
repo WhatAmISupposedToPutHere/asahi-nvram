@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
     io::{stdin, stdout, Read, Seek, SeekFrom, Write},
+    env
 };
 use uuid::Uuid;
 
@@ -238,6 +239,12 @@ fn swap_uuid(u: &Uuid) -> Uuid {
 }
 
 fn main() {
+    let mut nvram_key: &[u8] = b"boot-volume".as_ref();
+    for arg in env::args() {
+        if arg == "--next" || arg == "-n" {
+            nvram_key = b"alt-boot-volume".as_ref();
+        }
+    }
     let disk = GptConfig::new()
         .writable(false)
         .logical_block_size(LogicalBlockSize::Lb4096)
@@ -290,11 +297,11 @@ fn main() {
     let mut nv = Nvram::parse(&data).unwrap();
     nv.prepare_for_write();
     nv.active_part_mut().system.values.insert(
-        b"boot-volume",
+        nvram_key,
         Variable {
-            key: b"boot-volume",
-            value: Cow::Owned(boot_str.into_bytes()),
-        },
+            key: nvram_key,
+            value: Cow::Owned(boot_str.into_bytes())
+        }
     );
     file.rewind().unwrap();
     let data = nv.serialize().unwrap();
