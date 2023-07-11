@@ -235,7 +235,7 @@ pub struct BootCandidate {
 
 fn swap_uuid(u: &Uuid) -> Uuid {
     let (a, b, c, d) = u.as_fields();
-    Uuid::from_fields(a.swap_bytes(), b.swap_bytes(), c.swap_bytes(), d).unwrap()
+    Uuid::from_fields(a.swap_bytes(), b.swap_bytes(), c.swap_bytes(), d)
 }
 
 fn main() {
@@ -280,11 +280,11 @@ fn main() {
         "EF57347C-0000-AA11-AA11-00306543ECAC:{}:{}",
         cands[ix]
             .part_uuid
-            .to_hyphenated()
+            .hyphenated()
             .encode_upper(&mut Uuid::encode_buffer()),
         cands[ix]
             .vg_uuid
-            .to_hyphenated()
+            .hyphenated()
             .encode_upper(&mut Uuid::encode_buffer())
     );
     let mut file = OpenOptions::new()
