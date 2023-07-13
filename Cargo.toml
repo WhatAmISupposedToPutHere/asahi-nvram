@@ -4,7 +4,8 @@ members = [
     "nvram",
     "asahi-nvram",
     "asahi-btsync",
-    "asahi-bless"
+    "asahi-bless",
+    "asahi-wifisync"
 ]
 
 
