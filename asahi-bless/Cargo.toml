@@ -3,6 +3,10 @@ name = "asahi-bless"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "A tool to select active boot partition on ARM Macs"
+homepage = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
+repository = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -10,5 +14,6 @@ license = "MIT"
 uuid = "1"
 gpt = "3"
 
-[dependencies.nvram]
-path = "../nvram"
+[dependencies.apple-nvram]
+path = "../apple-nvram"
+version = "0.1"

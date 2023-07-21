@@ -20,11 +20,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "apple-nvram"
+version = "0.1.0"
+dependencies = [
+ "adler32",
+ "nix",
+]
+
+[[package]]
 name = "asahi-bless"
 version = "0.1.0"
 dependencies = [
+ "apple-nvram",
  "gpt",
- "nvram",
  "uuid",
 ]
 
@@ -32,8 +40,8 @@ dependencies = [
 name = "asahi-btsync"
 version = "0.1.0"
 dependencies = [
+ "apple-nvram",
  "clap",
- "nvram",
  "rust-ini",
 ]
 
@@ -41,16 +49,16 @@ dependencies = [
 name = "asahi-nvram"
 version = "0.1.0"
 dependencies = [
+ "apple-nvram",
  "clap",
- "nvram",
 ]
 
 [[package]]
 name = "asahi-wifisync"
 version = "0.1.0"
 dependencies = [
+ "apple-nvram",
  "clap",
- "nvram",
  "rust-ini",
 ]
 
@@ -219,14 +227,6 @@ dependencies = [
  "libc",
  "memoffset",
  "pin-utils",
-]
-
-[[package]]
-name = "nvram"
-version = "0.1.0"
-dependencies = [
- "adler32",
- "nix",
 ]
 
 [[package]]

@@ -7,7 +7,7 @@ use std::{
     io::{Read, Seek, Write},
 };
 
-use nvram::{erase_if_needed, Nvram, Section, UnescapeVal, Variable};
+use apple_nvram::{erase_if_needed, Nvram, Section, UnescapeVal, Variable};
 
 #[derive(Debug)]
 enum Error {
@@ -20,11 +20,11 @@ enum Error {
     InvalidHex,
 }
 
-impl From<nvram::Error> for Error {
-    fn from(e: nvram::Error) -> Self {
+impl From<apple_nvram::Error> for Error {
+    fn from(e: apple_nvram::Error) -> Self {
         match e {
-            nvram::Error::ParseError => Error::Parse,
-            nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ParseError => Error::Parse,
+            apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
         }
     }
 }

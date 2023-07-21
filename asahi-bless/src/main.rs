@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
 use gpt::{disk::LogicalBlockSize, GptConfig};
-use nvram::{erase_if_needed, Nvram, Variable};
+use apple_nvram::{erase_if_needed, Nvram, Variable};
 use std::{
     borrow::Cow,
     collections::HashMap,
