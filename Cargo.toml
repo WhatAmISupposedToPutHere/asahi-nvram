@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-    "nvram",
+    "apple-nvram",
     "asahi-nvram",
     "asahi-btsync",
     "asahi-bless",

@@ -1,0 +1,15 @@
+[package]
+name = "apple-nvram"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A library to parse and write apple-formatted nvram entries"
+homepage = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
+repository = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+adler32 = "1"
+nix = "0.25"
