@@ -12,4 +12,4 @@ repository = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
 
 [dependencies]
 adler32 = "1"
-nix = "0.25"
+nix = "0.26"
