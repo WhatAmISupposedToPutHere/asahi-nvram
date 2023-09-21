@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, UnescapeVal, Variable};
+use apple_nvram::{nvram_parse, VarType, Variable};
 
 use ini::Ini;
 
@@ -16,6 +16,7 @@ use ini::Ini;
 enum Error {
     Parse,
     SectionTooBig,
+    ApplyError(std::io::Error),
     VariableNotFound,
     FileIO,
     IWDConfigDirNotFound,
@@ -26,6 +27,7 @@ impl From<apple_nvram::Error> for Error {
         match e {
             apple_nvram::Error::ParseError => Error::Parse,
             apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
         }
     }
 }
@@ -64,12 +66,10 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
-    let wlan_devs = nv
-        .active_part_mut()
-        .system
-        .values
-        .get(wlan_var.as_bytes())
+    let mut nv = nvram_parse(&data)?;
+    let active = nv.active_part_mut();
+    let wlan_devs = active
+        .get_variable(wlan_var.as_bytes(), VarType::System)
         .ok_or(Error::VariableNotFound)?;
 
     match matches.subcommand() {
@@ -97,9 +97,9 @@ struct Network {
 
 const CHUNK_LEN: usize = 0xc0;
 
-fn parse_wlan_info(var: &Variable) -> Vec<Network> {
+fn parse_wlan_info(var: &dyn Variable) -> Vec<Network> {
     let mut nets = Vec::new();
-    let data = UnescapeVal::new(var.value.iter().copied()).collect::<Vec<_>>();
+    let data = var.value();
     for chunk in data.chunks(CHUNK_LEN) {
         let ssid_len = u32::from_le_bytes(chunk[0xc..0x10].try_into().unwrap()) as usize;
         let ssid = String::from_utf8_lossy(&chunk[0x10..0x10 + ssid_len]).to_string();
@@ -109,9 +109,7 @@ fn parse_wlan_info(var: &Variable) -> Vec<Network> {
         } else {
             None
         };
-        nets.push(Network{
-            ssid, psk
-        });
+        nets.push(Network { ssid, psk });
     }
 
     nets
@@ -124,7 +122,7 @@ fn format_psk(psk: &[u8]) -> String {
         .join("")
 }
 
-fn print_wlankeys(var: &Variable) -> Result<()> {
+fn print_wlankeys(var: &dyn Variable) -> Result<()> {
     let info = parse_wlan_info(var);
 
     for network in info {
@@ -133,16 +131,12 @@ fn print_wlankeys(var: &Variable) -> Result<()> {
         } else {
             "Open".to_owned()
         };
-        println!(
-            "SSID {}, {}",
-            network.ssid,
-            psk_str
-        );
+        println!("SSID {}, {}", network.ssid, psk_str);
     }
     Ok(())
 }
 
-fn sync_wlankeys(var: &Variable, config: &String) -> Result<()> {
+fn sync_wlankeys(var: &dyn Variable, config: &String) -> Result<()> {
     let config_path = Path::new(config);
 
     if !config_path.is_dir() {

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
+use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 use gpt::{disk::LogicalBlockSize, GptConfig};
-use apple_nvram::{erase_if_needed, Nvram, Variable};
 use std::{
     borrow::Cow,
     collections::HashMap,
+    env,
     fs::{File, OpenOptions},
-    io::{stdin, stdout, Read, Seek, SeekFrom, Write},
-    env
+    io::{self, stdin, stdout, Read, Seek, SeekFrom, Write},
+    process::ExitCode,
 };
 use uuid::Uuid;
 
@@ -131,12 +132,10 @@ impl ApfsSuperblock<'_> {
     }
 }
 
-fn pread<T: Read + Seek>(file: &mut T, pos: u64, target: &mut [u8]) -> Result<()> {
+fn pread<T: Read + Seek>(file: &mut T, pos: u64, target: &mut [u8]) -> io::Result<()> {
     file.seek(SeekFrom::Start(pos))?;
     file.read_exact(target)
 }
-
-type Result<T> = std::result::Result<T, std::io::Error>;
 
 // should probably fix xids here
 fn lookup(_disk: &mut File, cur_node: &BTreeNodePhys, key: u64) -> Option<u64> {
@@ -177,7 +176,7 @@ fn trim_zeroes(s: &[u8]) -> &[u8] {
     s
 }
 
-fn scan_volume(disk: &mut File) -> Result<HashMap<Uuid, Vec<String>>> {
+fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
     let mut superblock = vec![0; NxSuperblock::SIZE];
     disk.read_exact(&mut superblock)?;
     let sb = NxSuperblock(&superblock);
@@ -238,7 +237,37 @@ fn swap_uuid(u: &Uuid) -> Uuid {
     Uuid::from_fields(a.swap_bytes(), b.swap_bytes(), c.swap_bytes(), d)
 }
 
-fn main() {
+#[derive(Debug)]
+enum Error {
+    Parse,
+    SectionTooBig,
+    ApplyError(std::io::Error),
+    OutOfRange,
+}
+
+impl From<apple_nvram::Error> for Error {
+    fn from(e: apple_nvram::Error) -> Self {
+        match e {
+            apple_nvram::Error::ParseError => Error::Parse,
+            apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+fn main() -> ExitCode {
+    match real_main() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn real_main() -> Result<()> {
     let mut nvram_key: &[u8] = b"boot-volume".as_ref();
     for arg in env::args() {
         if arg == "--next" || arg == "-n" {
@@ -274,7 +303,7 @@ fn main() {
     let ix = input.trim().parse::<usize>().unwrap() - 1;
     if ix >= cands.len() {
         eprintln!("index out of range");
-        return;
+        return Err(Error::OutOfRange);
     };
     let boot_str = format!(
         "EF57347C-0000-AA11-AA11-00306543ECAC:{}:{}",
@@ -294,17 +323,13 @@ fn main() {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data).unwrap();
+    let mut nv = nvram_parse(&data).unwrap();
     nv.prepare_for_write();
-    nv.active_part_mut().system.values.insert(
+    nv.active_part_mut().insert_variable(
         nvram_key,
-        Variable {
-            key: nvram_key,
-            value: Cow::Owned(boot_str.into_bytes())
-        }
+        Cow::Owned(boot_str.into_bytes()),
+        VarType::System,
     );
-    file.rewind().unwrap();
-    let data = nv.serialize().unwrap();
-    erase_if_needed(&file, data.len());
-    file.write_all(&data).unwrap();
+    nv.apply(&mut MtdWriter::new(file))?;
+    Ok(())
 }

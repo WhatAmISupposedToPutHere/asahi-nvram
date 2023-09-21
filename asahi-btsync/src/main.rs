@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, UnescapeVal, Variable};
+use apple_nvram::{nvram_parse, VarType, Variable};
 
 use ini::Ini;
 
@@ -17,6 +17,7 @@ use ini::Ini;
 enum Error {
     Parse,
     SectionTooBig,
+    ApplyError(std::io::Error),
     VariableNotFound,
     FileIO,
     BluezConfigDirNotFound,
@@ -28,6 +29,7 @@ impl From<apple_nvram::Error> for Error {
         match e {
             apple_nvram::Error::ParseError => Error::Parse,
             apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
         }
     }
 }
@@ -75,12 +77,10 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
-    let bt_devs = nv
-        .active_part_mut()
-        .system
-        .values
-        .get(bt_var.as_bytes())
+    let mut nv = nvram_parse(&data)?;
+    let active = nv.active_part_mut();
+    let bt_devs = active
+        .get_variable(bt_var.as_bytes(), VarType::System)
         .ok_or(Error::VariableNotFound)?;
 
     match matches.subcommand() {
@@ -104,13 +104,8 @@ fn real_main() -> Result<()> {
     Ok(())
 }
 
-fn dump(var: &Variable) -> Result<()> {
-    let mut data = Vec::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        data.push(c)
-    }
-
-    stdout().write_all(&data)?;
+fn dump(var: &dyn Variable) -> Result<()> {
+    stdout().write_all(&var.value())?;
     Ok(())
 }
 
@@ -173,11 +168,8 @@ fn parse_bt_device(input: &mut &[u8]) -> Result<BtDevice> {
     })
 }
 
-fn parse_bt_info(var: &Variable) -> Result<BtInfo> {
-    let mut data = Vec::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        data.push(c)
-    }
+fn parse_bt_info(var: &dyn Variable) -> Result<BtInfo> {
+    let data = var.value();
 
     assert!(data.len() >= 8);
     let adapter_mac: [u8; 6] = data[0..6].try_into()?;
@@ -209,7 +201,7 @@ fn format_key(key: &[u8; 16]) -> Result<String> {
     Ok(key.iter().map(|x| format!("{x:02X}")).rev().collect())
 }
 
-fn print_btkeys(var: &Variable) -> Result<()> {
+fn print_btkeys(var: &dyn Variable) -> Result<()> {
     let info = parse_bt_info(var)?;
 
     for dev in info.devices {
@@ -224,7 +216,7 @@ fn print_btkeys(var: &Variable) -> Result<()> {
     Ok(())
 }
 
-fn sync_btkeys(var: &Variable, config: &String) -> Result<()> {
+fn sync_btkeys(var: &dyn Variable, config: &String) -> Result<()> {
     let config_path = Path::new(config);
 
     if !config_path.is_dir() {

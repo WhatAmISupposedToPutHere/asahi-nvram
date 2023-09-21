@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: MIT
-use std::{
-    borrow::Cow,
-    env,
-    fmt::Debug,
-    fs::OpenOptions,
-    io::{Read, Seek, Write},
-};
+use std::{borrow::Cow, fs::OpenOptions, io::Read, process::ExitCode};
 
-use apple_nvram::{erase_if_needed, Nvram, Section, UnescapeVal, Variable};
+use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 
 #[derive(Debug)]
 enum Error {
     Parse,
     SectionTooBig,
+    ApplyError(std::io::Error),
     MissingPartitionName,
     MissingValue,
     VariableNotFound,
@@ -25,14 +20,21 @@ impl From<apple_nvram::Error> for Error {
         match e {
             apple_nvram::Error::ParseError => Error::Parse,
             apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
         }
     }
 }
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn main() {
-    real_main().unwrap();
+fn main() -> ExitCode {
+    match real_main() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn real_main() -> Result<()> {
@@ -62,69 +64,59 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
+    let mut nv = nvram_parse(&data)?;
     match matches.subcommand() {
         Some(("read", args)) => {
+            let active = nv.active_part_mut();
+
             let vars = args.get_many::<String>("variable");
             if let Some(vars) = vars {
                 for var in vars {
                     let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    let v = part_by_name(part, &mut nv)?
-                        .values
-                        .get(name.as_bytes())
+                    let typ = part_by_name(part)?;
+                    let v = active
+                        .get_variable(name.as_bytes(), typ)
                         .ok_or(Error::VariableNotFound)?;
-                    print_var(part, v);
+                    println!("{}", v);
                 }
             } else {
-                let part = nv.active_part_mut();
-                for var in part.common.values.values() {
-                    print_var("common", var);
-                }
-                for var in part.system.values.values() {
-                    print_var("system", var);
+                for var in active.variables() {
+                    println!("{}", var);
                 }
             }
         }
         Some(("write", args)) => {
             let vars = args.get_many::<String>("variable=value");
             nv.prepare_for_write();
+            let active = nv.active_part_mut();
             for var in vars.unwrap_or_default() {
                 let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
                 let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.insert(
-                    name.as_bytes(),
-                    Variable {
-                        key: name.as_bytes(),
-                        value: Cow::Owned(read_var(value)?),
-                    },
-                );
+                let typ = part_by_name(part)?;
+                active.insert_variable(name.as_bytes(), Cow::Owned(read_var(value)?), typ);
             }
-            file.rewind().unwrap();
-            let data = nv.serialize()?;
-            erase_if_needed(&file, data.len());
-            file.write_all(&data).unwrap();
+            nv.apply(&mut MtdWriter::new(file))?;
         }
         Some(("delete", args)) => {
             let vars = args.get_many::<String>("variable");
             nv.prepare_for_write();
+            let active = nv.active_part_mut();
             for var in vars.unwrap_or_default() {
                 let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.remove(name.as_bytes());
+                let typ = part_by_name(part)?;
+                active.remove_variable(name.as_bytes(), typ);
             }
-            file.rewind().unwrap();
-            let data = nv.serialize()?;
-            erase_if_needed(&file, data.len());
-            file.write_all(&data).unwrap();
+            nv.apply(&mut MtdWriter::new(file))?;
         }
         _ => {}
     }
     Ok(())
 }
 
-fn part_by_name<'a, 'b>(name: &str, nv: &'b mut Nvram<'a>) -> Result<&'b mut Section<'a>> {
+fn part_by_name(name: &str) -> Result<VarType> {
     match name {
-        "common" => Ok(&mut nv.active_part_mut().common),
-        "system" => Ok(&mut nv.active_part_mut().system),
+        "common" => Ok(VarType::Common),
+        "system" => Ok(VarType::System),
         _ => Err(Error::UnknownPartition),
     }
 }
@@ -149,16 +141,4 @@ fn read_var(val: &str) -> Result<Vec<u8>> {
         i += 1;
     }
     Ok(ret)
-}
-
-fn print_var(section: &str, var: &Variable) {
-    let mut value = String::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        if (c as char).is_ascii() && !(c as char).is_ascii_control() {
-            value.push(c as char);
-        } else {
-            value.push_str(&format!("%{c:02x}"));
-        }
-    }
-    println!("{}:{}={}", section, String::from_utf8_lossy(var.key), value);
 }
