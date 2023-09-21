@@ -7,6 +7,8 @@ use std::{
     os::unix::io::AsRawFd,
 };
 
+pub mod v3;
+
 pub struct UnescapeVal<I> {
     inner: I,
     esc_out: u8,
@@ -188,7 +190,7 @@ impl Section<'_> {
         Ok(Section { header, values })
     }
     fn size_bytes(&self) -> usize {
-        (self.header.size * 16) as usize
+        self.header.size as usize * 16
     }
     pub fn serialize(&self, v: &mut Vec<u8>) -> Result<()> {
         let start_size = v.len();
