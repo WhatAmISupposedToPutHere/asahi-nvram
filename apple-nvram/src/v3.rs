@@ -11,6 +11,7 @@ const VARIABLE_DATA: u16 = 0x55AA;
 
 const STORE_HEADER_SIZE: usize = 24;
 const VAR_HEADER_SIZE: usize = 36;
+const VAR_ADDED: u8 = 0x7F;
 
 const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[0x40, 0xA0, 0xDD, 0xD2, 0x77, 0xF8, 0x43, 0x92, 0xB4, 0xA3, 0x1E, 0x73, 0x04, 0x20, 0x65, 0x16];
 
@@ -62,39 +63,44 @@ impl<'a> Partition<'a> {
         let mut values = IndexMap::new();
 
         while offset + VAR_HEADER_SIZE < header.size() {
-            let mut empty = true;
-            for i in 0..VAR_HEADER_SIZE {
-                if nvr[offset + i] != 0 && nvr[offset + i] != 0xFF {
-                    empty = false;
-                    break;
+            // let mut empty = true;
+            // for i in 0..VAR_HEADER_SIZE {
+            //     if nvr[offset + i] != 0 && nvr[offset + i] != 0xFF {
+            //         empty = false;
+            //         break;
+            //     }
+            // }
+            // if empty {
+            //     println!("DEBUG: stopped at offset 0x{:04x}", offset);
+            //     break
+            // }
+
+            match VarHeader::parse(&nvr[offset..]) {
+                Ok(v_header) => {
+                    let k_begin = offset + VAR_HEADER_SIZE;
+                    let k_end = k_begin + v_header.name_size as usize;
+                    let key = &nvr[k_begin..k_end - 1];
+
+                    let v_begin = k_end;
+                    let v_end = v_begin + v_header.data_size as usize;
+                    let value = &nvr[v_begin..v_end];
+
+                    let crc = crc32fast::hash(value);
+                    if crc != v_header.crc {
+                        return Err(Error::ParseError)
+                    }
+                    let v = Variable {
+                        header: v_header, key,
+                        value: Cow::Borrowed(value),
+                    };
+
+                    offset += v.size();
+                    // println!("DEBUG 0x{:04x} {}", offset, &v);
+                    values.insert(key, v);
                 }
-            }
-            if empty {
-                break
-            }
-
-            if let Ok(v_header) = VarHeader::parse(&nvr[offset..]) {
-                let k_begin = offset + VAR_HEADER_SIZE;
-                let k_end = k_begin + v_header.name_size as usize;
-                let key = &nvr[k_begin..k_end - 1];
-
-                let v_begin = k_end;
-                let v_end = v_begin + v_header.data_size as usize;
-                let value = &nvr[v_begin..v_end];
-
-                let crc = crc32fast::hash(value);
-                if crc != v_header.crc {
-                    return Err(Error::ParseError)
+                _ => {
+                    offset += VAR_HEADER_SIZE;
                 }
-                let v = Variable {
-                    header: v_header, key,
-                    value: Cow::Borrowed(value),
-                };
-
-                offset += v.size();
-                values.insert(key, v);
-            } else {
-                offset += VAR_HEADER_SIZE;
             }
         }
 
