@@ -1,4 +1,6 @@
-use std::{borrow::Cow, collections::HashMap, fmt};
+use std::{borrow::Cow, fmt};
+use indexmap::IndexMap;
+
 use super::{Result, Error};
 
 // https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IONVRAMV3Handler.cpp#L630
@@ -50,14 +52,14 @@ impl<'a> Nvram<'a> {
 #[derive(Debug, Clone)]
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
-    pub values: HashMap<&'a [u8], Variable<'a>>,
+    pub values: IndexMap<&'a [u8], Variable<'a>>,
 }
 
 impl<'a> Partition<'a> {
     pub fn parse(nvr: &[u8]) -> Result<Partition<'_>> {
         let header = StoreHeader::parse(&nvr[..STORE_HEADER_SIZE])?;
         let mut offset = STORE_HEADER_SIZE;
-        let mut values = HashMap::new();
+        let mut values = IndexMap::new();
 
         while offset + VAR_HEADER_SIZE < header.size() {
             let mut empty = true;
@@ -77,8 +79,13 @@ impl<'a> Partition<'a> {
                 let key = &nvr[k_begin..k_end - 1];
 
                 let v_begin = k_end;
-                let v_end = k_end + v_header.data_size as usize;
+                let v_end = v_begin + v_header.data_size as usize;
                 let value = &nvr[v_begin..v_end];
+
+                let crc = crc32fast::hash(value);
+                if crc != v_header.crc {
+                    return Err(Error::ParseError)
+                }
                 let v = Variable {
                     header: v_header, key,
                     value: Cow::Borrowed(value),
@@ -165,8 +172,18 @@ impl<'a> Variable<'a> {
 impl<'a> fmt::Display for Variable<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let key = String::from_utf8_lossy(self.key);
-        let value = String::from_utf8_lossy(&self.value);
-        write!(f, "{}:{}={}", self.typ(), key, value)
+        let mut value = String::new();
+        for c in self.value.iter().copied() {
+            if (c as char).is_ascii() && !(c as char).is_ascii_control() {
+                value.push(c as char);
+            } else {
+                value.push_str(&format!("%{c:02x}"));
+            }
+        }
+
+        let value: String = value.chars().take(128).collect();
+        write!(f, "{}:{}={} (state:0x{:02x})",
+            self.typ(), key, value, self.header.state)
     }
 }
 
@@ -190,6 +207,7 @@ pub struct VarHeader<'a> {
     pub name_size: u32,
     pub data_size: u32,
     pub guid: &'a [u8],
+    pub crc: u32,
 }
 
 impl<'a> VarHeader<'a> {
@@ -203,12 +221,12 @@ impl<'a> VarHeader<'a> {
         let name_size = u32::from_le_bytes(nvr[8..12].try_into().unwrap());
         let data_size = u32::from_le_bytes(nvr[12..16].try_into().unwrap());
         let guid = &nvr[16..32];
-        let _crc = u32::from_le_bytes(nvr[32..36].try_into().unwrap());
+        let crc = u32::from_le_bytes(nvr[32..36].try_into().unwrap());
 
         if VAR_HEADER_SIZE + (name_size + data_size) as usize > nvr.len() {
             return Err(Error::ParseError);
         }
 
-        Ok(VarHeader { state, attrs, name_size, data_size, guid })
+        Ok(VarHeader { state, attrs, name_size, data_size, guid, crc })
     }
 }

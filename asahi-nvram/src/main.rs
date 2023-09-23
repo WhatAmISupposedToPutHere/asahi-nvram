@@ -65,23 +65,30 @@ fn real_v3_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = v3::Nvram::parse(&data)?;
+    let nv = v3::Nvram::parse(&data)?;
     match matches.subcommand() {
         Some(("read", args)) => {
             let vars = args.get_many::<String>("variable");
             if let Some(vars) = vars {
                 for var in vars {
                     let (_, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    let v = nv.active_part_mut()
-                        .values
-                        .get(name.as_bytes())
-                        .ok_or(Error::VariableNotFound)?;
-                    println!("{}", v);
+                    for part in &nv.partitions {
+                        let v = part
+                            .values
+                            .get(name.as_bytes())
+                            .ok_or(Error::VariableNotFound)?;
+                        println!("{}", v);
+                    }
                 }
             } else {
-                let part = nv.active_part_mut();
-                for var in part.values.values() {
-                    println!("{}", var);
+                for part in &nv.partitions {
+                    println!("size: {}, generation: {}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
+                             part.header.size, part.generation(), part.header.state,
+                             part.header.flags, part.values.len());
+                    for var in part.values.values() {
+                        println!("{}", var);
+                    }
+                    println!("========================================================")
                 }
             }
         }
