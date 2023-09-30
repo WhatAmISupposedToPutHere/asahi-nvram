@@ -17,36 +17,51 @@ const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[0x40, 0xA0, 0xDD, 0xD2, 0x77, 0x
 
 #[derive(Debug)]
 pub struct Nvram<'a> {
-    pub partitions: [Partition<'a>; 2],
+    pub partitions: [Option<Partition<'a>>; 16],
     pub active: usize,
 }
 
 impl<'a> Nvram<'a> {
-    pub fn parse(nvr: &[u8]) -> Result<Nvram<'_>> {
-        let p1;
-        let p2;
-        match (Partition::parse(nvr), Partition::parse(&nvr[0x10000..])) {
-            (Err(err), Err(_)) => return Err(err),
-            (Ok(p1r), Err(_)) => {
-                p1 = p1r;
-                p2 = p1.clone();
+    pub fn parse(nvr: &'a [u8]) -> Result<Nvram<'_>> {
+        let mut partitions: [Option<Partition<'a>>; 16] = Default::default();
+        let mut active = 0;
+        let mut max_gen = 0;
+        let mut valid_partitions = 0;
+
+        for i in 0..16 {
+            let offset = i * 0x10000;
+            if offset >= nvr.len() {
+                break;
             }
-            (Err(_), Ok(p2r)) => {
-                p2 = p2r;
-                p1 = p2.clone();
-            }
-            (Ok(p1r), Ok(p2r)) => {
-                p1 = p1r;
-                p2 = p2r;
+            match Partition::parse(&nvr[offset..]) {
+                Ok(p) => {
+                    let p_gen = p.generation();
+                    if p_gen > max_gen {
+                        active = i;
+                        max_gen = p_gen;
+                    }
+                    partitions[i] = Some(p);
+                    valid_partitions += 1;
+                }
+                Err(_e) => {}
             }
         }
-        let active = if p1.generation() > p2.generation() { 0 } else { 1 };
-        let partitions = [p1, p2];
+
+        if valid_partitions == 0 {
+            return Err(Error::ParseError);
+        }
         Ok(Nvram { partitions, active })
     }
 
+    pub fn partitions(&self) -> impl Iterator<Item=&Partition<'_>> {
+        self.partitions.iter().filter_map(|x| x.as_ref())
+    }
+
+    pub fn active_part(&self) -> &Partition<'a> {
+        self.partitions[self.active].as_ref().unwrap()
+    }
     pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
-        &mut self.partitions[self.active]
+        self.partitions[self.active].as_mut().unwrap()
     }
 }
 
@@ -96,7 +111,9 @@ impl<'a> Partition<'a> {
 
                     offset += v.size();
                     // println!("DEBUG 0x{:04x} {}", offset, &v);
-                    values.insert(key, v);
+                    if v.header.state == VAR_ADDED {
+                        values.insert(key, v);
+                    }
                 }
                 _ => {
                     offset += VAR_HEADER_SIZE;

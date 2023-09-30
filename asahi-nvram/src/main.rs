@@ -72,16 +72,15 @@ fn real_v3_main() -> Result<()> {
             if let Some(vars) = vars {
                 for var in vars {
                     let (_, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    for part in &nv.partitions {
-                        let v = part
-                            .values
-                            .get(name.as_bytes())
-                            .ok_or(Error::VariableNotFound)?;
-                        println!("{}", v);
-                    }
+                    let part = nv.active_part();
+                    let v = part
+                        .values
+                        .get(name.as_bytes())
+                        .ok_or(Error::VariableNotFound)?;
+                    println!("{}", v);
                 }
             } else {
-                for part in &nv.partitions {
+                for part in nv.partitions() {
                     println!("size: {}, generation: {}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
                              part.header.size, part.generation(), part.header.state,
                              part.header.flags, part.values.len());
