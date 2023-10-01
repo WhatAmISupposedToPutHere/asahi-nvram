@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 use std::{
-    fmt::{Debug, self},
+    fmt::{Debug, Display, Formatter},
     fs::File,
     os::unix::io::AsRawFd, borrow::Cow,
 };
@@ -145,7 +145,7 @@ pub enum Partition<'a, 'b> {
     V3(&'b v3::Partition<'a>),
 }
 
-impl<'a, 'b> Partition<'a, 'b>  {
+impl<'a> Partition<'a, '_>  {
     pub fn variables(&self) -> impl Iterator<Item = Variable<'a, '_>> {
         match self {
             Partition::V1V2(p) => {
@@ -158,11 +158,11 @@ impl<'a, 'b> Partition<'a, 'b>  {
     }
 }
 
-impl<'a, 'b> fmt::Display for Partition<'a, 'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Partition<'_, '_> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match *self {
-            Partition::V1V2(p) => fmt::Display::fmt(p, f),
-            Partition::V3(p) => fmt::Display::fmt(p, f),
+            Partition::V1V2(p) => Display::fmt(p, f),
+            Partition::V3(p) => Display::fmt(p, f),
         }
     }
 }
@@ -173,7 +173,7 @@ pub enum PartitionMut<'a, 'b> {
     V3(&'b mut v3::Partition<'a>),
 }
 
-impl<'a, 'b> PartitionMut<'a, 'b> {
+impl<'a> PartitionMut<'a, '_> {
     pub fn get_variable(&self, key: &'a [u8]) -> Option<Variable<'a, '_>> {
         match self {
             PartitionMut::V1V2(p) => {
@@ -224,8 +224,8 @@ pub enum VarType {
     Common, System
 }
 
-impl fmt::Display for VarType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for VarType {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             &VarType::Common => write!(f, "common"),
             &VarType::System => write!(f, "system"),
@@ -248,11 +248,11 @@ impl<'a> Variable<'a, '_> {
     }
 }
 
-impl<'a, 'b> fmt::Display for Variable<'a, 'b> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for Variable<'_, '_> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match *self {
-            Variable::V1V2(v) => fmt::Display::fmt(v, f),
-            Variable::V3(v) => fmt::Display::fmt(v, f),
+            Variable::V1V2(v) => Display::fmt(v, f),
+            Variable::V3(v) => Display::fmt(v, f),
         }
     }
 }
