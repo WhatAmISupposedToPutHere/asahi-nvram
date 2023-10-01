@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
 use gpt::{disk::LogicalBlockSize, GptConfig};
-use apple_nvram::{erase_if_needed, Nvram, Variable};
+use apple_nvram::{erase_if_needed, Nvram, Variable, VarType};
 use std::{
     borrow::Cow,
     collections::HashMap,
@@ -300,7 +300,8 @@ fn main() {
         nvram_key,
         Variable {
             key: nvram_key,
-            value: Cow::Owned(boot_str.into_bytes())
+            value: Cow::Owned(boot_str.into_bytes()),
+            typ: VarType::System,
         }
     );
     file.rewind().unwrap();

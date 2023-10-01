@@ -2,11 +2,12 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Formatter, self},
     fs::File,
     os::unix::io::AsRawFd,
 };
 
+pub mod v1v2;
 pub mod v3;
 
 pub struct UnescapeVal<I> {
@@ -149,14 +150,33 @@ impl CHRPHeader<'_> {
 pub struct Variable<'a> {
     pub key: &'a [u8],
     pub value: Cow<'a, [u8]>,
+    pub typ: VarType,
 }
 
 impl Variable<'_> {
-    pub fn new<'a>(key: &'a [u8], value: &'a [u8]) -> Variable<'a> {
+    pub fn new<'a>(key: &'a [u8], value: &'a [u8], typ: VarType) -> Variable<'a> {
         Variable {
             key,
             value: Cow::Borrowed(value),
+            typ,
         }
+    }
+}
+
+impl<'a> fmt::Display for Variable<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let key = String::from_utf8_lossy(self.key);
+        let mut value = String::new();
+        for c in UnescapeVal::new(self.value.iter().copied()) {
+            if (c as char).is_ascii() && !(c as char).is_ascii_control() {
+                value.push(c as char);
+            } else {
+                value.push_str(&format!("%{c:02x}"));
+            }
+        }
+
+        let value: String = value.chars().take(128).collect();
+        write!(f, "{}:{}={}", self.typ, key, value)
     }
 }
 
@@ -184,7 +204,12 @@ impl Section<'_> {
             }
             let eq = eq.unwrap();
             let key = &cand[..eq];
-            values.insert(key, Variable::new(key, &cand[(eq + 1)..]));
+            let typ = if header.name == b"common" {
+                VarType::Common
+            } else {
+                VarType::System
+            };
+            values.insert(key, Variable::new(key, &cand[(eq + 1)..], typ));
             nvr = &nvr[(zero + 1)..]
         }
         Ok(Section { header, values })
@@ -378,5 +403,19 @@ pub fn erase_if_needed(file: &File, size: usize) {
     };
     unsafe {
         mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap();
+    }
+}
+
+#[derive(Clone)]
+pub enum VarType {
+    Common, System
+}
+
+impl fmt::Display for VarType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &VarType::Common => write!(f, "common"),
+            &VarType::System => write!(f, "system"),
+        }
     }
 }

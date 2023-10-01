@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt};
 use indexmap::IndexMap;
 
-use super::{Result, Error};
+use super::{VarType, Result, Error};
 
 // https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IONVRAMV3Handler.cpp#L630
 
@@ -207,19 +207,6 @@ impl<'a> fmt::Display for Variable<'a> {
         let value: String = value.chars().take(128).collect();
         write!(f, "{}:{}={} (state:0x{:02x})",
             self.typ(), key, value, self.header.state)
-    }
-}
-
-pub enum VarType {
-    Common, System
-}
-
-impl fmt::Display for VarType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &VarType::Common => write!(f, "common"),
-            &VarType::System => write!(f, "system"),
-        }
     }
 }
 

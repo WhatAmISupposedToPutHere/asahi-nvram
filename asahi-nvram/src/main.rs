@@ -7,7 +7,7 @@ use std::{
     io::{Read, Seek, Write},
 };
 
-use apple_nvram::{v3, erase_if_needed, Nvram, Section, UnescapeVal, Variable};
+use apple_nvram::{v3, erase_if_needed, Nvram, Section, Variable, VarType};
 
 #[derive(Debug)]
 enum Error {
@@ -161,19 +161,20 @@ fn real_main() -> Result<()> {
             if let Some(vars) = vars {
                 for var in vars {
                     let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                    let v = part_by_name(part, &mut nv)?
+                    let (p, _) = part_by_name(part, &mut nv)?;
+                    let v = p
                         .values
                         .get(name.as_bytes())
                         .ok_or(Error::VariableNotFound)?;
-                    print_var(part, v);
+                    println!("{}", v);
                 }
             } else {
                 let part = nv.active_part_mut();
                 for var in part.common.values.values() {
-                    print_var("common", var);
+                    println!("{}", var);
                 }
                 for var in part.system.values.values() {
-                    print_var("system", var);
+                    println!("{}", var);
                 }
             }
         }
@@ -183,11 +184,13 @@ fn real_main() -> Result<()> {
             for var in vars.unwrap_or_default() {
                 let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
                 let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.insert(
+                let (p, typ) = part_by_name(part, &mut nv)?;
+                p.values.insert(
                     name.as_bytes(),
                     Variable {
                         key: name.as_bytes(),
                         value: Cow::Owned(read_var(value)?),
+                        typ,
                     },
                 );
             }
@@ -201,7 +204,8 @@ fn real_main() -> Result<()> {
             nv.prepare_for_write();
             for var in vars.unwrap_or_default() {
                 let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
-                part_by_name(part, &mut nv)?.values.remove(name.as_bytes());
+                let (p, _) = part_by_name(part, &mut nv)?;
+                p.values.remove(name.as_bytes());
             }
             file.rewind().unwrap();
             let data = nv.serialize()?;
@@ -213,10 +217,10 @@ fn real_main() -> Result<()> {
     Ok(())
 }
 
-fn part_by_name<'a, 'b>(name: &str, nv: &'b mut Nvram<'a>) -> Result<&'b mut Section<'a>> {
+fn part_by_name<'a, 'b>(name: &str, nv: &'b mut Nvram<'a>) -> Result<(&'b mut Section<'a>, VarType)> {
     match name {
-        "common" => Ok(&mut nv.active_part_mut().common),
-        "system" => Ok(&mut nv.active_part_mut().system),
+        "common" => Ok((&mut nv.active_part_mut().common, VarType::Common)),
+        "system" => Ok((&mut nv.active_part_mut().system, VarType::System)),
         _ => Err(Error::UnknownPartition),
     }
 }
@@ -241,16 +245,4 @@ fn read_var(val: &str) -> Result<Vec<u8>> {
         i += 1;
     }
     Ok(ret)
-}
-
-fn print_var(section: &str, var: &Variable) {
-    let mut value = String::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        if (c as char).is_ascii() && !(c as char).is_ascii_control() {
-            value.push(c as char);
-        } else {
-            value.push_str(&format!("%{c:02x}"));
-        }
-    }
-    println!("{}:{}={}", section, String::from_utf8_lossy(var.key), value);
 }
