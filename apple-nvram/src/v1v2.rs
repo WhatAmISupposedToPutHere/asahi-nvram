@@ -131,7 +131,7 @@ impl<'a> Variable<'a> {
     }
 }
 
-impl<'a> Display for Variable<'a> {
+impl Display for Variable<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let key = String::from_utf8_lossy(self.key);
         let mut value = String::new();
@@ -324,6 +324,16 @@ impl<'a> Partition<'a> {
 
     pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
         self.common.values.values().chain(self.system.values.values())
+    }
+}
+
+impl Display for Partition<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "size: {}, generation: {}, count: {}",
+            self.header.size, self.generation,
+            self.common.values.len() + self.system.values.len(),
+        )
     }
 }
 

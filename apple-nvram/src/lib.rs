@@ -145,6 +145,28 @@ pub enum Partition<'a, 'b> {
     V3(&'b v3::Partition<'a>),
 }
 
+impl<'a, 'b> Partition<'a, 'b>  {
+    pub fn variables(&self) -> impl Iterator<Item = Variable<'a, '_>> {
+        match self {
+            Partition::V1V2(p) => {
+                Either::Left(p.variables().map(|v| Variable::V1V2(v)))
+            }
+            Partition::V3(p) => {
+                Either::Right(p.variables().map(|v| Variable::V3(v)))
+            }
+        }
+    }
+}
+
+impl<'a, 'b> fmt::Display for Partition<'a, 'b> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Partition::V1V2(p) => fmt::Display::fmt(p, f),
+            Partition::V3(p) => fmt::Display::fmt(p, f),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum PartitionMut<'a, 'b> {
     V1V2(&'b mut v1v2::Partition<'a>),

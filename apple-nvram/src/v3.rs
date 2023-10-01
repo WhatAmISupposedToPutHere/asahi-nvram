@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, fmt::{Formatter, Display}};
 use indexmap::IndexMap;
 
 use crate::{VarType, Result, Error};
@@ -165,6 +165,16 @@ impl<'a> Partition<'a> {
     }
 }
 
+impl Display for Partition<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "size: {}, generation: {}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
+            self.header.size, self.generation(), self.header.state,
+            self.header.flags, self.values.len()
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StoreHeader<'a> {
     pub name: &'a [u8],
@@ -232,8 +242,8 @@ impl<'a> Variable<'a> {
     }
 }
 
-impl<'a> fmt::Display for Variable<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<'a> Display for Variable<'a> {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let key = String::from_utf8_lossy(self.key);
         let mut value = String::new();
         for c in self.value.iter().copied() {
