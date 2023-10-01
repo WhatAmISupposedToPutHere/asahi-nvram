@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, UnescapeVal, Variable};
+use apple_nvram::{Nvram, Variable};
 
 use ini::Ini;
 
@@ -76,41 +76,34 @@ fn real_main() -> Result<()> {
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     let mut nv = Nvram::parse(&data)?;
-    let bt_devs = nv
-        .active_part_mut()
-        .system
-        .values
-        .get(bt_var.as_bytes())
+    let active = nv.active_part_mut();
+    let bt_devs = active
+        .get_variable(bt_var.as_bytes())
         .ok_or(Error::VariableNotFound)?;
 
     match matches.subcommand() {
         Some(("list", _args)) => {
-            print_btkeys(bt_devs).expect("Failed to parse bt device info");
+            print_btkeys(&bt_devs).expect("Failed to parse bt device info");
         }
         Some(("sync", args)) => {
             sync_btkeys(
-                bt_devs,
+                &bt_devs,
                 args.get_one::<String>("config").unwrap_or(&default_config),
             )
             .expect("Failed to sync bt device info");
         }
         Some(("dump", _args)) => {
-            dump(bt_devs).expect("Failed to dump bt device info");
+            dump(&bt_devs).expect("Failed to dump bt device info");
         }
         _ => {
-            print_btkeys(bt_devs).expect("Failed to parse bt device info");
+            print_btkeys(&bt_devs).expect("Failed to parse bt device info");
         }
     }
     Ok(())
 }
 
 fn dump(var: &Variable) -> Result<()> {
-    let mut data = Vec::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        data.push(c)
-    }
-
-    stdout().write_all(&data)?;
+    stdout().write_all(&var.value())?;
     Ok(())
 }
 
@@ -174,10 +167,7 @@ fn parse_bt_device(input: &mut &[u8]) -> Result<BtDevice> {
 }
 
 fn parse_bt_info(var: &Variable) -> Result<BtInfo> {
-    let mut data = Vec::new();
-    for c in UnescapeVal::new(var.value.iter().copied()) {
-        data.push(c)
-    }
+    let data = var.value();
 
     assert!(data.len() >= 8);
     let adapter_mac: [u8; 6] = data[0..6].try_into()?;

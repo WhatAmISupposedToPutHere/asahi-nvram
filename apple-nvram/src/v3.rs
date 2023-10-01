@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt};
 use indexmap::IndexMap;
 
-use super::{VarType, Result, Error};
+use crate::{VarType, Result, Error};
 
 // https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IONVRAMV3Handler.cpp#L630
 
@@ -53,13 +53,22 @@ impl<'a> Nvram<'a> {
         Ok(Nvram { partitions, active })
     }
 
-    pub fn partitions(&self) -> impl Iterator<Item=&Partition<'_>> {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        // TODO
+        Ok(vec![])
+    }
+
+    pub fn prepare_for_write(&mut self) {
+        // TODO
+    }
+
+    pub fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
         self.partitions.iter().filter_map(|x| x.as_ref())
     }
 
-    pub fn active_part(&self) -> &Partition<'a> {
-        self.partitions[self.active].as_ref().unwrap()
-    }
+    // pub fn active_part(&self) -> &Partition<'a> {
+    //     self.partitions[self.active].as_ref().unwrap()
+    // }
     pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
         self.partitions[self.active].as_mut().unwrap()
     }
@@ -127,6 +136,33 @@ impl<'a> Partition<'a> {
     pub fn generation(&self) -> u32 {
         self.header.generation
     }
+
+    pub fn get_variable(&self, key: &[u8]) -> Option<&Variable<'a>> {
+        self.values.get(key)
+    }
+
+    pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
+        self.values.insert(key, Variable {
+            header: VarHeader {
+                // TODO: fill in correct values
+                state: VAR_ADDED,
+                attrs: 0,
+                name_size: 0,
+                data_size: 0,
+                guid: APPLE_SYSTEM_VARIABLE_GUID,
+                crc: 0,
+            },
+            key, value
+        });
+    }
+
+    pub fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
+        self.values.remove(key);
+    }
+
+    pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
+        self.values.values()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +225,10 @@ impl<'a> Variable<'a> {
             return VarType::System;
         }
         VarType::Common
+    }
+
+    pub fn value(&self) -> Cow<'a, [u8]> {
+        self.value.clone()
     }
 }
 

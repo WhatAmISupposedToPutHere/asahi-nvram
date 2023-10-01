@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, UnescapeVal, Variable};
+use apple_nvram::{Nvram, Variable};
 
 use ini::Ini;
 
@@ -65,26 +65,24 @@ fn real_main() -> Result<()> {
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
     let mut nv = Nvram::parse(&data)?;
-    let wlan_devs = nv
-        .active_part_mut()
-        .system
-        .values
-        .get(wlan_var.as_bytes())
+    let active = nv.active_part_mut();
+    let wlan_devs = active
+        .get_variable(wlan_var.as_bytes())
         .ok_or(Error::VariableNotFound)?;
 
     match matches.subcommand() {
         Some(("list", _args)) => {
-            print_wlankeys(wlan_devs).expect("Failed to parse wlan device info");
+            print_wlankeys(&wlan_devs).expect("Failed to parse wlan device info");
         }
         Some(("sync", args)) => {
             sync_wlankeys(
-                wlan_devs,
+                &wlan_devs,
                 args.get_one::<String>("config").unwrap_or(&default_config),
             )
             .expect("Failed to sync wlan device info");
         }
         _ => {
-            print_wlankeys(wlan_devs).expect("Failed to parse wlan device info");
+            print_wlankeys(&wlan_devs).expect("Failed to parse wlan device info");
         }
     }
     Ok(())
@@ -99,7 +97,7 @@ const CHUNK_LEN: usize = 0xc0;
 
 fn parse_wlan_info(var: &Variable) -> Vec<Network> {
     let mut nets = Vec::new();
-    let data = UnescapeVal::new(var.value.iter().copied()).collect::<Vec<_>>();
+    let data = var.value();
     for chunk in data.chunks(CHUNK_LEN) {
         let ssid_len = u32::from_le_bytes(chunk[0xc..0x10].try_into().unwrap()) as usize;
         let ssid = String::from_utf8_lossy(&chunk[0x10..0x10 + ssid_len]).to_string();
