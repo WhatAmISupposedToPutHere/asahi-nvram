@@ -13,6 +13,7 @@ const STORE_HEADER_SIZE: usize = 24;
 const VAR_HEADER_SIZE: usize = 36;
 const VAR_ADDED: u8 = 0x7F;
 
+const APPLE_COMMON_VARIABLE_GUID: &[u8; 16] = &[0x7C, 0x43, 0x61, 0x10, 0xAB, 0x2A, 0x4B, 0xBB, 0xA8, 0x80, 0xFE, 0x41, 0x99, 0x5C, 0x9F, 0x82];
 const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[0x40, 0xA0, 0xDD, 0xD2, 0x77, 0xF8, 0x43, 0x92, 0xB4, 0xA3, 0x1E, 0x73, 0x04, 0x20, 0x65, 0x16];
 
 #[derive(Debug)]
@@ -33,7 +34,7 @@ impl<'a> Nvram<'a> {
             if offset >= nvr.len() {
                 break;
             }
-            match Partition::parse(&nvr[offset..]) {
+            match Partition::parse(&nvr[offset..offset + 0x10000]) {
                 Ok(p) => {
                     let p_gen = p.generation();
                     if p_gen > max_gen {
@@ -54,12 +55,21 @@ impl<'a> Nvram<'a> {
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>> {
-        // TODO
-        Ok(vec![])
+        let mut v = Vec::with_capacity(16 * 0x10000);
+        let mut p_begin = 0;
+        for p in self.partitions() {
+            // first write the original data
+            v.extend_from_slice(p.raw_data);
+            // then update it
+            let p_end = p_begin + 0x10000;
+            p.serialize(&mut v[p_begin..p_end]);
+            p_begin += 0x10000;
+        }
+        Ok(v)
     }
 
     pub fn prepare_for_write(&mut self) {
-        // TODO
+        // nop
     }
 
     pub fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
@@ -78,6 +88,7 @@ impl<'a> Nvram<'a> {
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
     pub values: IndexMap<&'a [u8], Variable<'a>>,
+    pub raw_data: &'a [u8],
 }
 
 impl<'a> Partition<'a> {
@@ -116,6 +127,7 @@ impl<'a> Partition<'a> {
                     let v = Variable {
                         header: v_header, key,
                         value: Cow::Borrowed(value),
+                        offset: Some(offset),
                     };
 
                     offset += v.size();
@@ -130,7 +142,7 @@ impl<'a> Partition<'a> {
             }
         }
 
-        Ok(Partition { header, values })
+        Ok(Partition { header, values, raw_data: nvr })
     }
 
     pub fn generation(&self) -> u32 {
@@ -142,18 +154,19 @@ impl<'a> Partition<'a> {
     }
 
     pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
-        self.values.insert(key, Variable {
-            header: VarHeader {
-                // TODO: fill in correct values
-                state: VAR_ADDED,
-                attrs: 0,
-                name_size: 0,
-                data_size: 0,
-                guid: APPLE_SYSTEM_VARIABLE_GUID,
-                crc: 0,
-            },
-            key, value
-        });
+        let var = self.values.entry(key).or_default();
+
+        var.header.state = VAR_ADDED;
+        var.header.name_size = (key.len() + 1) as u32;
+        var.header.data_size = value.len() as u32;
+        var.header.guid = match _typ {
+            VarType::Common => APPLE_COMMON_VARIABLE_GUID,
+            VarType::System => APPLE_SYSTEM_VARIABLE_GUID,
+        };
+        var.header.crc = crc32fast::hash(&value);
+
+        var.key = key;
+        var.value = value;
     }
 
     pub fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
@@ -162,6 +175,12 @@ impl<'a> Partition<'a> {
 
     pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
         self.values.values()
+    }
+
+    pub fn serialize(&self, v: &mut [u8]) {
+        for var in self.values.values() {
+            var.serialize(v);
+        }
     }
 }
 
@@ -218,16 +237,17 @@ impl<'a> StoreHeader<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Variable<'a> {
     pub header: VarHeader<'a>,
     pub key: &'a [u8],
     pub value: Cow<'a, [u8]>,
+    offset: Option<usize>,
 }
 
 impl<'a> Variable<'a> {
     pub fn size(&self) -> usize {
-        (self.header.name_size + self.header.data_size) as usize
+        VAR_HEADER_SIZE + (self.header.name_size + self.header.data_size) as usize
     }
 
     pub fn typ(&self) -> VarType {
@@ -239,6 +259,25 @@ impl<'a> Variable<'a> {
 
     pub fn value(&self) -> Cow<'a, [u8]> {
         self.value.clone()
+    }
+
+    pub fn serialize(&self, v: &mut [u8]) {
+        match self.offset {
+            Some(offset) => {
+                self.header.serialize(&mut v[offset..]);
+                let k_begin = offset + VAR_HEADER_SIZE;
+                let k_end = k_begin + self.key.len();
+                v[k_begin..k_end].copy_from_slice(self.key);
+                v[k_end] = 0;
+
+                let v_begin = k_end + 1;
+                let v_end = v_begin + self.value.len();
+                v[v_begin..v_end].copy_from_slice(&self.value);
+            }
+            None => {
+                // TODO: insert new variables
+            }
+        }
     }
 }
 
@@ -260,7 +299,7 @@ impl<'a> Display for Variable<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct VarHeader<'a> {
     pub state: u8,
     pub attrs: u32,
@@ -288,5 +327,14 @@ impl<'a> VarHeader<'a> {
         }
 
         Ok(VarHeader { state, attrs, name_size, data_size, guid, crc })
+    }
+
+    pub fn serialize(&self, v: &mut [u8]) {
+        v[2] = self.state;
+        v[4..8].copy_from_slice(&self.attrs.to_le_bytes());
+        v[8..12].copy_from_slice(&self.name_size.to_le_bytes());
+        v[12..16].copy_from_slice(&self.data_size.to_le_bytes());
+        v[16..32].copy_from_slice(self.guid);
+        v[32..36].copy_from_slice(&self.crc.to_le_bytes());
     }
 }
