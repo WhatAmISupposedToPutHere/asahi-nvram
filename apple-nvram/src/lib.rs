@@ -98,7 +98,7 @@ impl<'a> Nvram<'a> {
         }
     }
 
-    pub fn serialize(&'a self) -> Result<Vec<u8>> {
+    pub fn serialize(&self) -> Result<Vec<u8>> {
         match self {
             Nvram::V1V2(nvram) => {
                 nvram.serialize()
