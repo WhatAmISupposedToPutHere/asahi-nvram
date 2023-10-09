@@ -76,16 +76,16 @@ fn real_main() -> Result<()> {
                     println!("{}", v);
                 }
             } else {
-                // for var in active.variables() {
-                //     println!("{}", var);
-                // }
-                for part in nv.partitions() {
-                    println!("{}", part);
-                    for var in part.variables() {
-                        println!("{}", var);
-                    }
-                    println!("========================================================")
+                for var in active.variables() {
+                    println!("{}", var);
                 }
+                // for part in nv.partitions() {
+                //     println!("{}", part);
+                //     for var in part.variables() {
+                //         println!("{}", var);
+                //     }
+                //     println!("========================================================")
+                // }
             }
         }
         Some(("write", args)) => {

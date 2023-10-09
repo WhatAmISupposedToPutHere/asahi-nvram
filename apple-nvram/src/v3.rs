@@ -1,5 +1,4 @@
 use std::{borrow::Cow, fmt::{Formatter, Display}};
-use indexmap::IndexMap;
 
 use crate::{VarType, Result, Error};
 
@@ -87,7 +86,7 @@ impl<'a> Nvram<'a> {
 #[derive(Debug, Clone)]
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
-    pub values: IndexMap<&'a [u8], Variable<'a>>,
+    pub values: Vec<(&'a [u8], Variable<'a>)>,
     pub raw_data: &'a [u8],
 }
 
@@ -95,7 +94,7 @@ impl<'a> Partition<'a> {
     pub fn parse(nvr: &[u8]) -> Result<Partition<'_>> {
         let header = StoreHeader::parse(&nvr[..STORE_HEADER_SIZE])?;
         let mut offset = STORE_HEADER_SIZE;
-        let mut values = IndexMap::new();
+        let mut values = Vec::new();
 
         while offset + VAR_HEADER_SIZE < header.size() {
             // let mut empty = true;
@@ -132,9 +131,9 @@ impl<'a> Partition<'a> {
 
                     offset += v.size();
                     // println!("DEBUG 0x{:04x} {}", offset, &v);
-                    if v.header.state == VAR_ADDED {
-                        values.insert(key, v);
-                    }
+                    // if v.header.state == VAR_ADDED {
+                    values.push((key, v));
+                    // }
                 }
                 _ => {
                     offset += VAR_HEADER_SIZE;
@@ -150,11 +149,31 @@ impl<'a> Partition<'a> {
     }
 
     pub fn get_variable(&self, key: &[u8]) -> Option<&Variable<'a>> {
-        self.values.get(key)
+        self.values.iter().find_map(|e| if e.0 == key && e.1.header.state == VAR_ADDED {
+            Some(&e.1)
+        } else {
+            None
+        })
+    }
+
+    pub fn entry_or_default(&mut self, key: &'a [u8]) -> &mut Variable<'a> {
+        let idx = self.values
+            .iter_mut()
+            .position(|e| e.0 == key && e.1.header.state == VAR_ADDED);
+
+        match idx {
+            Some(idx) => {
+                self.values.get_mut(idx).map(|e| &mut e.1).unwrap()
+            }
+            None => {
+                self.values.push((key, Variable::default()));
+                self.values.last_mut().map(|e| &mut e.1 ).unwrap()
+            }
+        }
     }
 
     pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
-        let var = self.values.entry(key).or_default();
+        let var = self.entry_or_default(key);
 
         var.header.state = VAR_ADDED;
         var.header.name_size = (key.len() + 1) as u32;
@@ -170,15 +189,20 @@ impl<'a> Partition<'a> {
     }
 
     pub fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
-        self.values.remove(key);
+        let idx = self.values.iter().position(|e|
+            e.0 == key && e.1.header.state == VAR_ADDED
+        );
+        if let Some(idx) = idx {
+            self.values.remove(idx);
+        }
     }
 
     pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
-        self.values.values()
+        self.values.iter().map(|e| &e.1)
     }
 
     pub fn serialize(&self, v: &mut [u8]) {
-        for var in self.values.values() {
+        for var in self.variables() {
             var.serialize(v);
         }
     }
@@ -294,8 +318,8 @@ impl<'a> Display for Variable<'a> {
         }
 
         let value: String = value.chars().take(128).collect();
-        write!(f, "{}:{}={} (state:0x{:02x})",
-            self.typ(), key, value, self.header.state)
+        write!(f, "(s:0x{:02x} o:0x{:05x}) {}:{}={}",
+            self.header.state, self.offset.unwrap_or_default(), self.typ(), key, value)
     }
 }
 
