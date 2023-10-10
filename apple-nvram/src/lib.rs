@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 use std::{
+    borrow::Cow,
     fmt::{Debug, Display, Formatter},
     fs::File,
-    os::unix::io::AsRawFd, borrow::Cow,
+    os::unix::io::AsRawFd,
 };
 
 use either::Either;
@@ -100,23 +101,15 @@ impl<'a> Nvram<'a> {
 
     pub fn serialize(&self) -> Result<Vec<u8>> {
         match self {
-            Nvram::V1V2(nvram) => {
-                nvram.serialize()
-            }
-            Nvram::V3(nvram) => {
-                nvram.serialize()
-            }
+            Nvram::V1V2(nvram) => nvram.serialize(),
+            Nvram::V3(nvram) => nvram.serialize(),
         }
     }
 
     pub fn prepare_for_write(&mut self) {
         match self {
-            Nvram::V1V2(nvram) => {
-                nvram.prepare_for_write()
-            }
-            Nvram::V3(nvram) => {
-                nvram.prepare_for_write()
-            }
+            Nvram::V1V2(nvram) => nvram.prepare_for_write(),
+            Nvram::V3(nvram) => nvram.prepare_for_write(),
         }
     }
 
@@ -129,12 +122,8 @@ impl<'a> Nvram<'a> {
 
     pub fn partitions(&self) -> impl Iterator<Item = Partition<'a, '_>> {
         match self {
-            Nvram::V1V2(nvram) => {
-                Either::Left(nvram.partitions().map(|p| Partition::V1V2(p)))
-            }
-            Nvram::V3(nvram) => {
-                Either::Right(nvram.partitions().map(|p| Partition::V3(p)))
-            }
+            Nvram::V1V2(nvram) => Either::Left(nvram.partitions().map(|p| Partition::V1V2(p))),
+            Nvram::V3(nvram) => Either::Right(nvram.partitions().map(|p| Partition::V3(p))),
         }
     }
 }
@@ -145,15 +134,11 @@ pub enum Partition<'a, 'b> {
     V3(&'b v3::Partition<'a>),
 }
 
-impl<'a> Partition<'a, '_>  {
+impl<'a> Partition<'a, '_> {
     pub fn variables(&self) -> impl Iterator<Item = Variable<'a, '_>> {
         match self {
-            Partition::V1V2(p) => {
-                Either::Left(p.variables().map(|v| Variable::V1V2(v)))
-            }
-            Partition::V3(p) => {
-                Either::Right(p.variables().map(|v| Variable::V3(v)))
-            }
+            Partition::V1V2(p) => Either::Left(p.variables().map(|v| Variable::V1V2(v))),
+            Partition::V3(p) => Either::Right(p.variables().map(|v| Variable::V3(v))),
         }
     }
 }
@@ -176,52 +161,37 @@ pub enum PartitionMut<'a, 'b> {
 impl<'a> PartitionMut<'a, '_> {
     pub fn get_variable(&self, key: &'a [u8]) -> Option<Variable<'a, '_>> {
         match self {
-            PartitionMut::V1V2(p) => {
-                p.get_variable(key).map(|v| Variable::V1V2(v))
-            }
-            PartitionMut::V3(p) => {
-                p.get_variable(key).map(|v| Variable::V3(v))
-            }
+            PartitionMut::V1V2(p) => p.get_variable(key).map(|v| Variable::V1V2(v)),
+            PartitionMut::V3(p) => p.get_variable(key).map(|v| Variable::V3(v)),
         }
     }
 
     pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
         match self {
-            PartitionMut::V1V2(p) => {
-                p.insert_variable(key, value, typ)
-            },
-            PartitionMut::V3(p) => {
-                p.insert_variable(key, value, typ)
-            },
+            PartitionMut::V1V2(p) => p.insert_variable(key, value, typ),
+            PartitionMut::V3(p) => p.insert_variable(key, value, typ),
         };
     }
 
     pub fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
         match self {
-            PartitionMut::V1V2(p) => {
-                p.remove_variable(key, typ)
-            },
-            PartitionMut::V3(p) => {
-                p.remove_variable(key, typ)
-            },
+            PartitionMut::V1V2(p) => p.remove_variable(key, typ),
+            PartitionMut::V3(p) => p.remove_variable(key, typ),
         };
     }
 
     pub fn variables(&self) -> impl Iterator<Item = Variable<'a, '_>> {
         match self {
-            PartitionMut::V1V2(p) => {
-                Either::Left(p.variables().map(|v| Variable::V1V2(v)))
-            }
-            PartitionMut::V3(p) => {
-                Either::Right(p.variables().map(|v| Variable::V3(v)))
-            }
+            PartitionMut::V1V2(p) => Either::Left(p.variables().map(|v| Variable::V1V2(v))),
+            PartitionMut::V3(p) => Either::Right(p.variables().map(|v| Variable::V3(v))),
         }
     }
 }
 
 #[derive(Clone)]
 pub enum VarType {
-    Common, System
+    Common,
+    System,
 }
 
 impl Display for VarType {

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use gpt::{disk::LogicalBlockSize, GptConfig};
 use apple_nvram::{erase_if_needed, Nvram, VarType};
+use gpt::{disk::LogicalBlockSize, GptConfig};
 use std::{
     borrow::Cow,
     collections::HashMap,
+    env,
     fs::{File, OpenOptions},
     io::{stdin, stdout, Read, Seek, SeekFrom, Write},
-    env
 };
 use uuid::Uuid;
 

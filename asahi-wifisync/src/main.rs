@@ -107,9 +107,7 @@ fn parse_wlan_info(var: &Variable) -> Vec<Network> {
         } else {
             None
         };
-        nets.push(Network{
-            ssid, psk
-        });
+        nets.push(Network { ssid, psk });
     }
 
     nets
@@ -131,11 +129,7 @@ fn print_wlankeys(var: &Variable) -> Result<()> {
         } else {
             "Open".to_owned()
         };
-        println!(
-            "SSID {}, {}",
-            network.ssid,
-            psk_str
-        );
+        println!("SSID {}, {}", network.ssid, psk_str);
     }
     Ok(())
 }

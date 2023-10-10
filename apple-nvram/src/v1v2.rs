@@ -1,15 +1,10 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    fmt::{Debug, Formatter, Display},
+    fmt::{Debug, Display, Formatter},
 };
 
-use crate::{
-    VarType, Result, Error,
-    chrp_checksum_add,
-    slice_find,
-    slice_rstrip
-};
+use crate::{chrp_checksum_add, slice_find, slice_rstrip, Error, Result, VarType};
 
 pub struct UnescapeVal<I> {
     inner: I,
@@ -125,9 +120,7 @@ impl<'a> Variable<'a> {
     }
 
     pub fn value(&self) -> Cow<'a, [u8]> {
-        Cow::Owned(UnescapeVal::new(
-            self.value.iter().copied()
-        ).collect())
+        Cow::Owned(UnescapeVal::new(self.value.iter().copied()).collect())
     }
 }
 
@@ -302,36 +295,37 @@ impl<'a> Partition<'a> {
 
     pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
         match typ {
-            VarType::Common => {
-                &mut self.common
-            },
-            VarType::System => {
-                &mut self.system
-            }
-        }.values.insert(key, Variable { key, value, typ });
+            VarType::Common => &mut self.common,
+            VarType::System => &mut self.system,
+        }
+        .values
+        .insert(key, Variable { key, value, typ });
     }
 
     pub fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
         match typ {
-            VarType::Common => {
-                &mut self.common
-            },
-            VarType::System => {
-                &mut self.system
-            }
-        }.values.remove(key);
+            VarType::Common => &mut self.common,
+            VarType::System => &mut self.system,
+        }
+        .values
+        .remove(key);
     }
 
     pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
-        self.common.values.values().chain(self.system.values.values())
+        self.common
+            .values
+            .values()
+            .chain(self.system.values.values())
     }
 }
 
 impl Display for Partition<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f,
+        write!(
+            f,
             "size: {}, generation: {}, count: {}",
-            self.header.size, self.generation,
+            self.header.size,
+            self.generation,
             self.common.values.len() + self.system.values.len(),
         )
     }

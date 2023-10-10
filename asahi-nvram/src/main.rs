@@ -96,11 +96,7 @@ fn real_main() -> Result<()> {
                 let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
                 let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
                 let typ = part_by_name(part)?;
-                active.insert_variable(
-                    name.as_bytes(),
-                    Cow::Owned(read_var(value)?),
-                    typ,
-                );
+                active.insert_variable(name.as_bytes(), Cow::Owned(read_var(value)?), typ);
             }
             file.rewind().unwrap();
             let data = nv.serialize()?;

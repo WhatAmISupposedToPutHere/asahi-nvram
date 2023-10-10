@@ -1,6 +1,9 @@
-use std::{borrow::Cow, fmt::{Formatter, Display}};
+use std::{
+    borrow::Cow,
+    fmt::{Display, Formatter},
+};
 
-use crate::{VarType, Result, Error};
+use crate::{Error, Result, VarType};
 
 // https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IONVRAMV3Handler.cpp#L630
 
@@ -12,8 +15,12 @@ const STORE_HEADER_SIZE: usize = 24;
 const VAR_HEADER_SIZE: usize = 36;
 const VAR_ADDED: u8 = 0x7F;
 
-const APPLE_COMMON_VARIABLE_GUID: &[u8; 16] = &[0x7C, 0x43, 0x61, 0x10, 0xAB, 0x2A, 0x4B, 0xBB, 0xA8, 0x80, 0xFE, 0x41, 0x99, 0x5C, 0x9F, 0x82];
-const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[0x40, 0xA0, 0xDD, 0xD2, 0x77, 0xF8, 0x43, 0x92, 0xB4, 0xA3, 0x1E, 0x73, 0x04, 0x20, 0x65, 0x16];
+const APPLE_COMMON_VARIABLE_GUID: &[u8; 16] = &[
+    0x7C, 0x43, 0x61, 0x10, 0xAB, 0x2A, 0x4B, 0xBB, 0xA8, 0x80, 0xFE, 0x41, 0x99, 0x5C, 0x9F, 0x82,
+];
+const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[
+    0x40, 0xA0, 0xDD, 0xD2, 0x77, 0xF8, 0x43, 0x92, 0xB4, 0xA3, 0x1E, 0x73, 0x04, 0x20, 0x65, 0x16,
+];
 
 #[derive(Debug)]
 pub struct Nvram<'a> {
@@ -121,10 +128,11 @@ impl<'a> Partition<'a> {
 
                     let crc = crc32fast::hash(value);
                     if crc != v_header.crc {
-                        return Err(Error::ParseError)
+                        return Err(Error::ParseError);
                     }
                     let v = Variable {
-                        header: v_header, key,
+                        header: v_header,
+                        key,
                         value: Cow::Borrowed(value),
                         offset: Some(offset),
                     };
@@ -141,7 +149,11 @@ impl<'a> Partition<'a> {
             }
         }
 
-        Ok(Partition { header, values, raw_data: nvr })
+        Ok(Partition {
+            header,
+            values,
+            raw_data: nvr,
+        })
     }
 
     pub fn generation(&self) -> u32 {
@@ -149,25 +161,26 @@ impl<'a> Partition<'a> {
     }
 
     pub fn get_variable(&self, key: &[u8]) -> Option<&Variable<'a>> {
-        self.values.iter().find_map(|e| if e.0 == key && e.1.header.state == VAR_ADDED {
-            Some(&e.1)
-        } else {
-            None
+        self.values.iter().find_map(|e| {
+            if e.0 == key && e.1.header.state == VAR_ADDED {
+                Some(&e.1)
+            } else {
+                None
+            }
         })
     }
 
     pub fn entry_or_default(&mut self, key: &'a [u8]) -> &mut Variable<'a> {
-        let idx = self.values
+        let idx = self
+            .values
             .iter_mut()
             .position(|e| e.0 == key && e.1.header.state == VAR_ADDED);
 
         match idx {
-            Some(idx) => {
-                self.values.get_mut(idx).map(|e| &mut e.1).unwrap()
-            }
+            Some(idx) => self.values.get_mut(idx).map(|e| &mut e.1).unwrap(),
             None => {
                 self.values.push((key, Variable::default()));
-                self.values.last_mut().map(|e| &mut e.1 ).unwrap()
+                self.values.last_mut().map(|e| &mut e.1).unwrap()
             }
         }
     }
@@ -189,9 +202,10 @@ impl<'a> Partition<'a> {
     }
 
     pub fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
-        let idx = self.values.iter().position(|e|
-            e.0 == key && e.1.header.state == VAR_ADDED
-        );
+        let idx = self
+            .values
+            .iter()
+            .position(|e| e.0 == key && e.1.header.state == VAR_ADDED);
         if let Some(idx) = idx {
             self.values.remove(idx);
         }
@@ -210,10 +224,14 @@ impl<'a> Partition<'a> {
 
 impl Display for Partition<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f,
+        write!(
+            f,
             "size: {}, generation: {}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
-            self.header.size, self.generation(), self.header.state,
-            self.header.flags, self.values.len()
+            self.header.size,
+            self.generation(),
+            self.header.state,
+            self.header.flags,
+            self.values.len()
         )
     }
 }
@@ -249,10 +267,14 @@ impl<'a> StoreHeader<'a> {
         }
 
         Ok(StoreHeader {
-            name, size,
-            generation, state,
-            flags, version,
-            system_size, common_size,
+            name,
+            size,
+            generation,
+            state,
+            flags,
+            version,
+            system_size,
+            common_size,
         })
     }
 
@@ -318,8 +340,15 @@ impl<'a> Display for Variable<'a> {
         }
 
         let value: String = value.chars().take(128).collect();
-        write!(f, "(s:0x{:02x} o:0x{:05x}) {}:{}={}",
-            self.header.state, self.offset.unwrap_or_default(), self.typ(), key, value)
+        write!(
+            f,
+            "(s:0x{:02x} o:0x{:05x}) {}:{}={}",
+            self.header.state,
+            self.offset.unwrap_or_default(),
+            self.typ(),
+            key,
+            value
+        )
     }
 }
 
@@ -350,7 +379,14 @@ impl<'a> VarHeader<'a> {
             return Err(Error::ParseError);
         }
 
-        Ok(VarHeader { state, attrs, name_size, data_size, guid, crc })
+        Ok(VarHeader {
+            state,
+            attrs,
+            name_size,
+            data_size,
+            guid,
+            crc,
+        })
     }
 
     pub fn serialize(&self, v: &mut [u8]) {
