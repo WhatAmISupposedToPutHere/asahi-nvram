@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use apple_nvram::{erase_if_needed, Nvram, VarType};
+use apple_nvram::{erase_if_needed, nvram_parse, VarType};
 use gpt::{disk::LogicalBlockSize, GptConfig};
 use std::{
     borrow::Cow,
@@ -294,7 +294,7 @@ fn main() {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data).unwrap();
+    let mut nv = nvram_parse(&data).unwrap();
     nv.prepare_for_write();
     nv.active_part_mut().insert_variable(
         nvram_key,

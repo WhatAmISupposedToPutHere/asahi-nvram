@@ -7,7 +7,7 @@ use std::{
     io::{Read, Seek, Write},
 };
 
-use apple_nvram::{erase_if_needed, Nvram, VarType};
+use apple_nvram::{erase_if_needed, nvram_parse, VarType};
 
 #[derive(Debug)]
 enum Error {
@@ -62,7 +62,7 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
+    let mut nv = nvram_parse(&data)?;
     match matches.subcommand() {
         Some(("read", args)) => {
             let active = nv.active_part_mut();
@@ -91,7 +91,7 @@ fn real_main() -> Result<()> {
         Some(("write", args)) => {
             let vars = args.get_many::<String>("variable=value");
             nv.prepare_for_write();
-            let mut active = nv.active_part_mut();
+            let active = nv.active_part_mut();
             for var in vars.unwrap_or_default() {
                 let (key, value) = var.split_once('=').ok_or(Error::MissingValue)?;
                 let (part, name) = key.split_once(':').ok_or(Error::MissingPartitionName)?;
@@ -106,7 +106,7 @@ fn real_main() -> Result<()> {
         Some(("delete", args)) => {
             let vars = args.get_many::<String>("variable");
             nv.prepare_for_write();
-            let mut active = nv.active_part_mut();
+            let active = nv.active_part_mut();
             for var in vars.unwrap_or_default() {
                 let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
                 let typ = part_by_name(part)?;

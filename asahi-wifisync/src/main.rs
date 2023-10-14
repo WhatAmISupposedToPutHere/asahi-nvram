@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, Variable};
+use apple_nvram::{nvram_parse, Variable};
 
 use ini::Ini;
 
@@ -64,7 +64,7 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
+    let mut nv = nvram_parse(&data)?;
     let active = nv.active_part_mut();
     let wlan_devs = active
         .get_variable(wlan_var.as_bytes())
@@ -72,17 +72,17 @@ fn real_main() -> Result<()> {
 
     match matches.subcommand() {
         Some(("list", _args)) => {
-            print_wlankeys(&wlan_devs).expect("Failed to parse wlan device info");
+            print_wlankeys(wlan_devs).expect("Failed to parse wlan device info");
         }
         Some(("sync", args)) => {
             sync_wlankeys(
-                &wlan_devs,
+                wlan_devs,
                 args.get_one::<String>("config").unwrap_or(&default_config),
             )
             .expect("Failed to sync wlan device info");
         }
         _ => {
-            print_wlankeys(&wlan_devs).expect("Failed to parse wlan device info");
+            print_wlankeys(wlan_devs).expect("Failed to parse wlan device info");
         }
     }
     Ok(())
@@ -95,7 +95,7 @@ struct Network {
 
 const CHUNK_LEN: usize = 0xc0;
 
-fn parse_wlan_info(var: &Variable) -> Vec<Network> {
+fn parse_wlan_info(var: &dyn Variable) -> Vec<Network> {
     let mut nets = Vec::new();
     let data = var.value();
     for chunk in data.chunks(CHUNK_LEN) {
@@ -120,7 +120,7 @@ fn format_psk(psk: &[u8]) -> String {
         .join("")
 }
 
-fn print_wlankeys(var: &Variable) -> Result<()> {
+fn print_wlankeys(var: &dyn Variable) -> Result<()> {
     let info = parse_wlan_info(var);
 
     for network in info {
@@ -134,7 +134,7 @@ fn print_wlankeys(var: &Variable) -> Result<()> {
     Ok(())
 }
 
-fn sync_wlankeys(var: &Variable, config: &String) -> Result<()> {
+fn sync_wlankeys(var: &dyn Variable, config: &String) -> Result<()> {
     let config_path = Path::new(config);
 
     if !config_path.is_dir() {

@@ -60,7 +60,13 @@ impl<'a> Nvram<'a> {
         Ok(Nvram { partitions, active })
     }
 
-    pub fn serialize(&self) -> Result<Vec<u8>> {
+    fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
+        self.partitions.iter().filter_map(|x| x.as_ref())
+    }
+}
+
+impl<'a> crate::Nvram<'a> for Nvram<'a> {
+    fn serialize(&self) -> Result<Vec<u8>> {
         let mut v = Vec::with_capacity(16 * 0x10000);
         let mut p_begin = 0;
         for p in self.partitions() {
@@ -74,18 +80,18 @@ impl<'a> Nvram<'a> {
         Ok(v)
     }
 
-    pub fn prepare_for_write(&mut self) {
+    fn prepare_for_write(&mut self) {
         // nop
     }
 
-    pub fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
-        self.partitions.iter().filter_map(|x| x.as_ref())
+    fn partitions(&self) -> Box<dyn Iterator<Item = &dyn crate::Partition<'a>> + '_> {
+        Box::new(self.partitions().map(|p| p as &dyn crate::Partition<'a>))
     }
 
     // pub fn active_part(&self) -> &Partition<'a> {
     //     self.partitions[self.active].as_ref().unwrap()
     // }
-    pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
+    fn active_part_mut(&mut self) -> &mut dyn crate::Partition<'a> {
         self.partitions[self.active].as_mut().unwrap()
     }
 }
@@ -156,21 +162,11 @@ impl<'a> Partition<'a> {
         })
     }
 
-    pub fn generation(&self) -> u32 {
+    fn generation(&self) -> u32 {
         self.header.generation
     }
 
-    pub fn get_variable(&self, key: &[u8]) -> Option<&Variable<'a>> {
-        self.values.iter().find_map(|e| {
-            if e.0 == key && e.1.header.state == VAR_ADDED {
-                Some(&e.1)
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn entry_or_default(&mut self, key: &'a [u8]) -> &mut Variable<'a> {
+    fn entry_or_default(&mut self, key: &'a [u8]) -> &mut Variable<'a> {
         let idx = self
             .values
             .iter_mut()
@@ -185,7 +181,29 @@ impl<'a> Partition<'a> {
         }
     }
 
-    pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
+    fn serialize(&self, v: &mut [u8]) {
+        for var in self.variables() {
+            var.serialize(v);
+        }
+    }
+
+    fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
+        self.values.iter().map(|e| &e.1)
+    }
+}
+
+impl<'a> crate::Partition<'a> for Partition<'a> {
+    fn get_variable(&self, key: &[u8]) -> Option<&dyn crate::Variable<'a>> {
+        self.values.iter().find_map(|e| {
+            if e.0 == key && e.1.header.state == VAR_ADDED {
+                Some(&e.1 as &dyn crate::Variable<'a>)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
         let var = self.entry_or_default(key);
 
         var.header.state = VAR_ADDED;
@@ -201,7 +219,7 @@ impl<'a> Partition<'a> {
         var.value = value;
     }
 
-    pub fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
+    fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
         let idx = self
             .values
             .iter()
@@ -211,14 +229,8 @@ impl<'a> Partition<'a> {
         }
     }
 
-    pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
-        self.values.iter().map(|e| &e.1)
-    }
-
-    pub fn serialize(&self, v: &mut [u8]) {
-        for var in self.variables() {
-            var.serialize(v);
-        }
+    fn variables(&self) -> Box<dyn Iterator<Item = &dyn crate::Variable<'a>> + '_> {
+        Box::new(self.variables().map(|e| e as &dyn crate::Variable<'a>))
     }
 }
 
@@ -303,11 +315,7 @@ impl<'a> Variable<'a> {
         VarType::Common
     }
 
-    pub fn value(&self) -> Cow<'a, [u8]> {
-        self.value.clone()
-    }
-
-    pub fn serialize(&self, v: &mut [u8]) {
+    fn serialize(&self, v: &mut [u8]) {
         match self.offset {
             Some(offset) => {
                 self.header.serialize(&mut v[offset..]);
@@ -327,7 +335,13 @@ impl<'a> Variable<'a> {
     }
 }
 
-impl<'a> Display for Variable<'a> {
+impl<'a> crate::Variable<'a> for Variable<'a> {
+    fn value(&self) -> Cow<'a, [u8]> {
+        self.value.clone()
+    }
+}
+
+impl Display for Variable<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let key = String::from_utf8_lossy(self.key);
         let mut value = String::new();

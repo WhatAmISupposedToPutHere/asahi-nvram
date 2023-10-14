@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{Nvram, Variable};
+use apple_nvram::{nvram_parse, Variable};
 
 use ini::Ini;
 
@@ -75,7 +75,7 @@ fn real_main() -> Result<()> {
         .unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data).unwrap();
-    let mut nv = Nvram::parse(&data)?;
+    let mut nv = nvram_parse(&data)?;
     let active = nv.active_part_mut();
     let bt_devs = active
         .get_variable(bt_var.as_bytes())
@@ -83,26 +83,26 @@ fn real_main() -> Result<()> {
 
     match matches.subcommand() {
         Some(("list", _args)) => {
-            print_btkeys(&bt_devs).expect("Failed to parse bt device info");
+            print_btkeys(bt_devs).expect("Failed to parse bt device info");
         }
         Some(("sync", args)) => {
             sync_btkeys(
-                &bt_devs,
+                bt_devs,
                 args.get_one::<String>("config").unwrap_or(&default_config),
             )
             .expect("Failed to sync bt device info");
         }
         Some(("dump", _args)) => {
-            dump(&bt_devs).expect("Failed to dump bt device info");
+            dump(bt_devs).expect("Failed to dump bt device info");
         }
         _ => {
-            print_btkeys(&bt_devs).expect("Failed to parse bt device info");
+            print_btkeys(bt_devs).expect("Failed to parse bt device info");
         }
     }
     Ok(())
 }
 
-fn dump(var: &Variable) -> Result<()> {
+fn dump(var: &dyn Variable) -> Result<()> {
     stdout().write_all(&var.value())?;
     Ok(())
 }
@@ -166,7 +166,7 @@ fn parse_bt_device(input: &mut &[u8]) -> Result<BtDevice> {
     })
 }
 
-fn parse_bt_info(var: &Variable) -> Result<BtInfo> {
+fn parse_bt_info(var: &dyn Variable) -> Result<BtInfo> {
     let data = var.value();
 
     assert!(data.len() >= 8);
@@ -199,7 +199,7 @@ fn format_key(key: &[u8; 16]) -> Result<String> {
     Ok(key.iter().map(|x| format!("{x:02X}")).rev().collect())
 }
 
-fn print_btkeys(var: &Variable) -> Result<()> {
+fn print_btkeys(var: &dyn Variable) -> Result<()> {
     let info = parse_bt_info(var)?;
 
     for dev in info.devices {
@@ -214,7 +214,7 @@ fn print_btkeys(var: &Variable) -> Result<()> {
     Ok(())
 }
 
-fn sync_btkeys(var: &Variable, config: &String) -> Result<()> {
+fn sync_btkeys(var: &dyn Variable, config: &String) -> Result<()> {
     let config_path = Path::new(config);
 
     if !config_path.is_dir() {

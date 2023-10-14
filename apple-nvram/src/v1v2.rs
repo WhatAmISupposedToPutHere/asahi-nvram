@@ -118,8 +118,10 @@ impl<'a> Variable<'a> {
             typ,
         }
     }
+}
 
-    pub fn value(&self) -> Cow<'a, [u8]> {
+impl<'a> crate::Variable<'a> for Variable<'a> {
+    fn value(&self) -> Cow<'a, [u8]> {
         Cow::Owned(UnescapeVal::new(self.value.iter().copied()).collect())
     }
 }
@@ -286,14 +288,26 @@ impl<'a> Partition<'a> {
         Ok(())
     }
 
-    pub fn get_variable(&self, key: &[u8]) -> Option<&Variable<'a>> {
+    pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
+        self.common
+            .values
+            .values()
+            .chain(self.system.values.values())
+    }
+}
+
+impl<'a> crate::Partition<'a> for Partition<'a> {
+    fn get_variable(&self, key: &[u8]) -> Option<&dyn crate::Variable<'a>> {
         match self.common.values.get(key) {
-            Some(v) => Some(v),
-            None => self.system.values.get(key),
+            Some(v) => Some(v as &dyn crate::Variable<'a>),
+            None => match self.system.values.get(key) {
+                Some(v) => Some(v as &dyn crate::Variable<'a>),
+                None => None,
+            },
         }
     }
 
-    pub fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
+    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
         match typ {
             VarType::Common => &mut self.common,
             VarType::System => &mut self.system,
@@ -302,7 +316,7 @@ impl<'a> Partition<'a> {
         .insert(key, Variable { key, value, typ });
     }
 
-    pub fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
+    fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
         match typ {
             VarType::Common => &mut self.common,
             VarType::System => &mut self.system,
@@ -311,11 +325,8 @@ impl<'a> Partition<'a> {
         .remove(key);
     }
 
-    pub fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
-        self.common
-            .values
-            .values()
-            .chain(self.system.values.values())
+    fn variables(&self) -> Box<dyn Iterator<Item = &dyn crate::Variable<'a>> + '_> {
+        Box::new(self.variables().map(|e| e as &dyn crate::Variable<'a>))
     }
 }
 
@@ -360,26 +371,33 @@ impl<'a> Nvram<'a> {
         let partitions = [p1, p2];
         Ok(Nvram { partitions, active })
     }
-    pub fn serialize(&self) -> Result<Vec<u8>> {
+
+    pub fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
+        self.partitions.iter()
+    }
+}
+
+impl<'a> crate::Nvram<'a> for Nvram<'a> {
+    fn serialize(&self) -> Result<Vec<u8>> {
         let mut v = Vec::with_capacity(self.partitions[0].size_bytes() * 2);
         self.partitions[0].serialize(&mut v)?;
         self.partitions[1].serialize(&mut v)?;
         Ok(v)
     }
-    pub fn prepare_for_write(&mut self) {
+    fn prepare_for_write(&mut self) {
         let inactive = 1 - self.active;
         self.partitions[inactive] = self.partitions[self.active].clone();
         self.partitions[inactive].generation += 1;
         self.active = inactive;
     }
-    // pub fn active_part(&self) -> &Partition<'a> {
+    // fn active_part(&self) -> &Partition<'a> {
     //     &self.partitions[self.active]
     // }
-    pub fn active_part_mut(&mut self) -> &mut Partition<'a> {
-        &mut self.partitions[self.active]
+    fn active_part_mut(&mut self) -> &mut dyn crate::Partition<'a> {
+        &mut self.partitions[self.active] as &mut dyn crate::Partition<'a>
     }
 
-    pub fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
-        self.partitions.iter()
+    fn partitions(&self) -> Box<dyn Iterator<Item = &dyn crate::Partition<'a>> + '_> {
+        Box::new(self.partitions().map(|e| e as &dyn crate::Partition<'a>))
     }
 }
