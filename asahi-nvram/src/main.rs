@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: MIT
-use std::{
-    borrow::Cow,
-    env,
-    fmt::Debug,
-    fs::OpenOptions,
-    io::{Read, Seek, Write},
-};
+use std::{borrow::Cow, fs::OpenOptions, io::Read};
 
-use apple_nvram::{erase_if_needed, nvram_parse, VarType};
+use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 
 #[derive(Debug)]
 enum Error {
@@ -100,10 +94,7 @@ fn real_main() -> Result<()> {
                 let typ = part_by_name(part)?;
                 active.insert_variable(name.as_bytes(), Cow::Owned(read_var(value)?), typ);
             }
-            file.rewind().unwrap();
-            let data = nv.serialize()?;
-            erase_if_needed(&file, data.len());
-            file.write_all(&data).unwrap();
+            nv.apply(&mut MtdWriter::new(file))?;
         }
         Some(("delete", args)) => {
             let vars = args.get_many::<String>("variable");
@@ -114,10 +105,7 @@ fn real_main() -> Result<()> {
                 let typ = part_by_name(part)?;
                 active.remove_variable(name.as_bytes(), typ);
             }
-            file.rewind().unwrap();
-            let data = nv.serialize()?;
-            erase_if_needed(&file, data.len());
-            file.write_all(&data).unwrap();
+            nv.apply(&mut MtdWriter::new(file))?;
         }
         _ => {}
     }

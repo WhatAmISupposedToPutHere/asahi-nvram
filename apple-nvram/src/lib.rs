@@ -2,9 +2,10 @@
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Formatter},
-    fs::File,
-    os::unix::io::AsRawFd,
 };
+
+pub mod mtd;
+pub use mtd::erase_if_needed; // TODO: remove
 
 pub mod v1v2;
 pub mod v3;
@@ -49,40 +50,6 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[repr(C)]
-pub struct EraseInfoUser {
-    start: u32,
-    length: u32,
-}
-
-#[repr(C)]
-#[derive(Default)]
-pub struct MtdInfoUser {
-    ty: u8,
-    flags: u32,
-    size: u32,
-    erasesize: u32,
-    writesize: u32,
-    oobsize: u32,
-    padding: u64,
-}
-
-nix::ioctl_write_ptr!(mtd_mem_erase, b'M', 2, EraseInfoUser);
-nix::ioctl_read!(mtd_mem_get_info, b'M', 1, MtdInfoUser);
-
-pub fn erase_if_needed(file: &File, size: usize) {
-    if unsafe { mtd_mem_get_info(file.as_raw_fd(), &mut MtdInfoUser::default()) }.is_err() {
-        return;
-    }
-    let erase_info = EraseInfoUser {
-        start: 0,
-        length: size as u32,
-    };
-    unsafe {
-        mtd_mem_erase(file.as_raw_fd(), &erase_info).unwrap();
-    }
-}
-
 #[derive(Clone)]
 pub enum VarType {
     Common,
@@ -107,7 +74,7 @@ pub fn nvram_parse<'a>(nvr: &'a [u8]) -> Result<Box<dyn Nvram<'a> + 'a>> {
 }
 
 pub trait NvramWriter {
-    fn write_all(&mut self, offset: usize, buf: &[u8]) -> std::io::Result<()>;
+    fn write_all(&mut self, offset: u32, buf: &[u8]) -> std::io::Result<()>;
 }
 
 pub trait Nvram<'a> {
