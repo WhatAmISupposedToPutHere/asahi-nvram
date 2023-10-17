@@ -318,6 +318,9 @@ impl<'a> Variable<'a> {
     fn serialize(&self, v: &mut [u8]) {
         match self.offset {
             Some(offset) => {
+                // TODO: this doesn't work when we replace
+                // a variable with one that has different size
+                // because there can't be any gaps or overlaps
                 self.header.serialize(&mut v[offset..]);
                 let k_begin = offset + VAR_HEADER_SIZE;
                 let k_end = k_begin + self.key.len();

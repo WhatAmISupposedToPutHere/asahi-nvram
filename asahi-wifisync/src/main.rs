@@ -16,6 +16,7 @@ use ini::Ini;
 enum Error {
     Parse,
     SectionTooBig,
+    ApplyError(std::io::Error),
     VariableNotFound,
     FileIO,
     IWDConfigDirNotFound,
@@ -26,6 +27,7 @@ impl From<apple_nvram::Error> for Error {
         match e {
             apple_nvram::Error::ParseError => Error::Parse,
             apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
         }
     }
 }
