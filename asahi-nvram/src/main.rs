@@ -71,9 +71,10 @@ fn real_main() -> Result<()> {
             let vars = args.get_many::<String>("variable");
             if let Some(vars) = vars {
                 for var in vars {
-                    let (_part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
+                    let (part, name) = var.split_once(':').ok_or(Error::MissingPartitionName)?;
+                    let typ = part_by_name(part)?;
                     let v = active
-                        .get_variable(name.as_bytes())
+                        .get_variable(name.as_bytes(), typ)
                         .ok_or(Error::VariableNotFound)?;
                     println!("{}", v);
                 }

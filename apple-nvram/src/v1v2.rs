@@ -297,13 +297,18 @@ impl<'a> Partition<'a> {
 }
 
 impl<'a> crate::Partition<'a> for Partition<'a> {
-    fn get_variable(&self, key: &[u8]) -> Option<&dyn crate::Variable<'a>> {
-        match self.common.values.get(key) {
-            Some(v) => Some(v as &dyn crate::Variable<'a>),
-            None => match self.system.values.get(key) {
-                Some(v) => Some(v as &dyn crate::Variable<'a>),
-                None => None,
-            },
+    fn get_variable(&self, key: &[u8], typ: VarType) -> Option<&dyn crate::Variable<'a>> {
+        match typ {
+            VarType::Common => self
+                .common
+                .values
+                .get(key)
+                .map(|v| v as &dyn crate::Variable),
+            VarType::System => self
+                .system
+                .values
+                .get(key)
+                .map(|v| v as &dyn crate::Variable),
         }
     }
 

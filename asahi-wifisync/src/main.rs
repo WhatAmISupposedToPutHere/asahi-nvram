@@ -8,7 +8,7 @@ use std::{
     path::Path,
 };
 
-use apple_nvram::{nvram_parse, Variable};
+use apple_nvram::{nvram_parse, VarType, Variable};
 
 use ini::Ini;
 
@@ -69,7 +69,7 @@ fn real_main() -> Result<()> {
     let mut nv = nvram_parse(&data)?;
     let active = nv.active_part_mut();
     let wlan_devs = active
-        .get_variable(wlan_var.as_bytes())
+        .get_variable(wlan_var.as_bytes(), VarType::System)
         .ok_or(Error::VariableNotFound)?;
 
     match matches.subcommand() {

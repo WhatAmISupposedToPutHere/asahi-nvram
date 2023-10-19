@@ -201,9 +201,9 @@ impl<'a> Partition<'a> {
 }
 
 impl<'a> crate::Partition<'a> for Partition<'a> {
-    fn get_variable(&self, key: &[u8]) -> Option<&dyn crate::Variable<'a>> {
+    fn get_variable(&self, key: &[u8], typ: VarType) -> Option<&dyn crate::Variable<'a>> {
         self.values.iter().find_map(|e| {
-            if e.0 == key && e.1.header.state == VAR_ADDED {
+            if e.0 == key && e.1.typ() == typ && e.1.header.state == VAR_ADDED {
                 Some(&e.1 as &dyn crate::Variable<'a>)
             } else {
                 None
