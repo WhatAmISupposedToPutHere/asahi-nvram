@@ -63,19 +63,17 @@ impl<'a> Nvram<'a> {
     fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
         self.partitions.iter().filter_map(|x| x.as_ref())
     }
+
+    pub fn active_part(&self) -> &Partition<'a> {
+        self.partitions[self.active].as_ref().unwrap()
+    }
 }
 
 impl<'a> crate::Nvram<'a> for Nvram<'a> {
     fn serialize(&self) -> Result<Vec<u8>> {
         let mut v = Vec::with_capacity(16 * 0x10000);
-        let mut p_begin = 0;
         for p in self.partitions() {
-            // first write the original data
-            v.extend_from_slice(p.raw_data);
-            // then update it
-            let p_end = p_begin + 0x10000;
-            p.serialize(&mut v[p_begin..p_end]);
-            p_begin += 0x10000;
+            p.serialize(&mut v);
         }
         Ok(v)
     }
@@ -88,11 +86,17 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         Box::new(self.partitions().map(|p| p as &dyn crate::Partition<'a>))
     }
 
-    // pub fn active_part(&self) -> &Partition<'a> {
-    //     self.partitions[self.active].as_ref().unwrap()
-    // }
     fn active_part_mut(&mut self) -> &mut dyn crate::Partition<'a> {
         self.partitions[self.active].as_mut().unwrap()
+    }
+
+    fn apply(&self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+        let mut data = Vec::with_capacity(0x10000);
+        self.active_part().serialize(&mut data);
+
+        w.write_all(self.active as u32 * 0x10000, &data)
+            .map_err(|e| Error::ApplyError(e))?;
+        Ok(())
     }
 }
 
@@ -181,9 +185,17 @@ impl<'a> Partition<'a> {
         }
     }
 
-    fn serialize(&self, v: &mut [u8]) {
+    fn serialize(&self, v: &mut Vec<u8>) {
+        let start_size = v.len();
+        self.header.serialize(v);
         for var in self.variables() {
             var.serialize(v);
+        }
+        let my_size = v.len() - start_size;
+
+        // padding
+        for _ in 0..(self.header.size() - my_size) {
+            v.push(0xFF);
         }
     }
 
@@ -290,6 +302,18 @@ impl<'a> StoreHeader<'a> {
         })
     }
 
+    fn serialize(&self, v: &mut Vec<u8>) {
+        v.extend_from_slice(VARIABLE_STORE_SIGNATURE);
+        v.extend_from_slice(&self.size.to_le_bytes());
+        v.extend_from_slice(&self.generation.to_le_bytes());
+        v.push(self.state);
+        v.push(self.flags);
+        v.push(self.version);
+        v.push(0); // reserved
+        v.extend_from_slice(&self.system_size.to_le_bytes());
+        v.extend_from_slice(&self.common_size.to_le_bytes());
+    }
+
     pub fn size(&self) -> usize {
         self.size as usize
     }
@@ -315,26 +339,11 @@ impl<'a> Variable<'a> {
         VarType::Common
     }
 
-    fn serialize(&self, v: &mut [u8]) {
-        match self.offset {
-            Some(offset) => {
-                // TODO: this doesn't work when we replace
-                // a variable with one that has different size
-                // because there can't be any gaps or overlaps
-                self.header.serialize(&mut v[offset..]);
-                let k_begin = offset + VAR_HEADER_SIZE;
-                let k_end = k_begin + self.key.len();
-                v[k_begin..k_end].copy_from_slice(self.key);
-                v[k_end] = 0;
-
-                let v_begin = k_end + 1;
-                let v_end = v_begin + self.value.len();
-                v[v_begin..v_end].copy_from_slice(&self.value);
-            }
-            None => {
-                // TODO: insert new variables
-            }
-        }
+    fn serialize(&self, v: &mut Vec<u8>) {
+        self.header.serialize(v);
+        v.extend_from_slice(self.key);
+        v.push(0);
+        v.extend_from_slice(&self.value);
     }
 }
 
@@ -406,12 +415,14 @@ impl<'a> VarHeader<'a> {
         })
     }
 
-    pub fn serialize(&self, v: &mut [u8]) {
-        v[2] = self.state;
-        v[4..8].copy_from_slice(&self.attrs.to_le_bytes());
-        v[8..12].copy_from_slice(&self.name_size.to_le_bytes());
-        v[12..16].copy_from_slice(&self.data_size.to_le_bytes());
-        v[16..32].copy_from_slice(self.guid);
-        v[32..36].copy_from_slice(&self.crc.to_le_bytes());
+    pub fn serialize(&self, v: &mut Vec<u8>) {
+        v.extend_from_slice(&VARIABLE_DATA.to_le_bytes());
+        v.push(self.state);
+        v.push(0); // reserved
+        v.extend_from_slice(&self.attrs.to_le_bytes());
+        v.extend_from_slice(&self.name_size.to_le_bytes());
+        v.extend_from_slice(&self.data_size.to_le_bytes());
+        v.extend_from_slice(self.guid);
+        v.extend_from_slice(&self.crc.to_le_bytes());
     }
 }

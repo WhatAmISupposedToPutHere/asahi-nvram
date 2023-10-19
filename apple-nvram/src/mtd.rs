@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{Seek, Write},
+    io::{Seek, SeekFrom, Write},
     os::unix::io::AsRawFd,
 };
 
@@ -18,7 +18,7 @@ impl MtdWriter {
 
 impl NvramWriter for MtdWriter {
     fn write_all(&mut self, offset: u32, buf: &[u8]) -> std::io::Result<()> {
-        self.file.rewind()?;
+        self.file.seek(SeekFrom::Start(offset as u64))?;
         erase_if_needed_at(&self.file, offset, buf.len());
         self.file.write_all(buf)?;
 

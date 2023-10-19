@@ -5,7 +5,6 @@ use std::{
 };
 
 pub mod mtd;
-pub use mtd::erase_if_needed; // TODO: remove
 
 pub mod v1v2;
 pub mod v3;
@@ -82,13 +81,7 @@ pub trait Nvram<'a> {
     fn active_part_mut(&mut self) -> &mut dyn Partition<'a>;
     fn partitions(&self) -> Box<dyn Iterator<Item = &dyn Partition<'a>> + '_>;
     fn serialize(&self) -> Result<Vec<u8>>;
-    fn apply(&self, w: &mut dyn NvramWriter) -> Result<()> {
-        let data = self.serialize()?;
-        // TODO: only erase the bank that was actually modified
-        // (do not overwrite the whole nvram)
-        w.write_all(0, &data).map_err(|e| Error::ApplyError(e))?;
-        Ok(())
-    }
+    fn apply(&self, w: &mut dyn NvramWriter) -> Result<()>;
 }
 
 pub trait Partition<'a>: Display {

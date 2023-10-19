@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use apple_nvram::{erase_if_needed, nvram_parse, VarType};
+use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 use gpt::{disk::LogicalBlockSize, GptConfig};
 use std::{
     borrow::Cow,
@@ -239,6 +239,10 @@ fn swap_uuid(u: &Uuid) -> Uuid {
 }
 
 fn main() {
+    real_main().unwrap();
+}
+
+fn real_main() -> std::result::Result<(), apple_nvram::Error> {
     let mut nvram_key: &[u8] = b"boot-volume".as_ref();
     for arg in env::args() {
         if arg == "--next" || arg == "-n" {
@@ -274,7 +278,7 @@ fn main() {
     let ix = input.trim().parse::<usize>().unwrap() - 1;
     if ix >= cands.len() {
         eprintln!("index out of range");
-        return;
+        return Ok(());
     };
     let boot_str = format!(
         "EF57347C-0000-AA11-AA11-00306543ECAC:{}:{}",
@@ -301,8 +305,6 @@ fn main() {
         Cow::Owned(boot_str.into_bytes()),
         VarType::System,
     );
-    file.rewind().unwrap();
-    let data = nv.serialize().unwrap();
-    erase_if_needed(&file, data.len());
-    file.write_all(&data).unwrap();
+    nv.apply(&mut MtdWriter::new(file))?;
+    Ok(())
 }

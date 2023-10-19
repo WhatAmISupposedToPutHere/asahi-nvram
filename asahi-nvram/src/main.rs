@@ -27,8 +27,8 @@ impl From<apple_nvram::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn main() -> Result<()> {
-    real_main()
+fn main() {
+    real_main().unwrap()
 }
 
 fn real_main() -> Result<()> {

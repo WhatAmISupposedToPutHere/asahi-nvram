@@ -400,4 +400,10 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
     fn partitions(&self) -> Box<dyn Iterator<Item = &dyn crate::Partition<'a>> + '_> {
         Box::new(self.partitions().map(|e| e as &dyn crate::Partition<'a>))
     }
+
+    fn apply(&self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+        let data = self.serialize()?;
+        w.write_all(0, &data).map_err(|e| Error::ApplyError(e))?;
+        Ok(())
+    }
 }
