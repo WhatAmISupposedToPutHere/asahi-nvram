@@ -144,7 +144,6 @@ impl<'a> Partition<'a> {
                         header: v_header,
                         key,
                         value: Cow::Borrowed(value),
-                        offset: Some(offset),
                     };
 
                     offset += v.size();
@@ -324,7 +323,6 @@ pub struct Variable<'a> {
     pub header: VarHeader<'a>,
     pub key: &'a [u8],
     pub value: Cow<'a, [u8]>,
-    offset: Option<usize>,
 }
 
 impl<'a> Variable<'a> {
@@ -368,9 +366,8 @@ impl Display for Variable<'_> {
         let value: String = value.chars().take(128).collect();
         write!(
             f,
-            "(s:0x{:02x} o:0x{:05x}) {}:{}={}",
+            "(s:0x{:02x}) {}:{}={}",
             self.header.state,
-            self.offset.unwrap_or_default(),
             self.typ(),
             key,
             value
