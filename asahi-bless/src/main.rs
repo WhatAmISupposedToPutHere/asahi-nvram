@@ -7,7 +7,8 @@ use std::{
     collections::HashMap,
     env,
     fs::{File, OpenOptions},
-    io::{stdin, stdout, Read, Seek, SeekFrom, Write},
+    io::{self, stdin, stdout, Read, Seek, SeekFrom, Write},
+    process::ExitCode,
 };
 use uuid::Uuid;
 
@@ -131,12 +132,10 @@ impl ApfsSuperblock<'_> {
     }
 }
 
-fn pread<T: Read + Seek>(file: &mut T, pos: u64, target: &mut [u8]) -> Result<()> {
+fn pread<T: Read + Seek>(file: &mut T, pos: u64, target: &mut [u8]) -> io::Result<()> {
     file.seek(SeekFrom::Start(pos))?;
     file.read_exact(target)
 }
-
-type Result<T> = std::result::Result<T, std::io::Error>;
 
 // should probably fix xids here
 fn lookup(_disk: &mut File, cur_node: &BTreeNodePhys, key: u64) -> Option<u64> {
@@ -177,7 +176,7 @@ fn trim_zeroes(s: &[u8]) -> &[u8] {
     s
 }
 
-fn scan_volume(disk: &mut File) -> Result<HashMap<Uuid, Vec<String>>> {
+fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
     let mut superblock = vec![0; NxSuperblock::SIZE];
     disk.read_exact(&mut superblock)?;
     let sb = NxSuperblock(&superblock);
@@ -238,11 +237,37 @@ fn swap_uuid(u: &Uuid) -> Uuid {
     Uuid::from_fields(a.swap_bytes(), b.swap_bytes(), c.swap_bytes(), d)
 }
 
-fn main() {
-    real_main().unwrap();
+#[derive(Debug)]
+enum Error {
+    Parse,
+    SectionTooBig,
+    ApplyError(std::io::Error),
+    OutOfRange,
 }
 
-fn real_main() -> std::result::Result<(), apple_nvram::Error> {
+impl From<apple_nvram::Error> for Error {
+    fn from(e: apple_nvram::Error) -> Self {
+        match e {
+            apple_nvram::Error::ParseError => Error::Parse,
+            apple_nvram::Error::SectionTooBig => Error::SectionTooBig,
+            apple_nvram::Error::ApplyError(e) => Error::ApplyError(e),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, Error>;
+
+fn main() -> ExitCode {
+    match real_main() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn real_main() -> Result<()> {
     let mut nvram_key: &[u8] = b"boot-volume".as_ref();
     for arg in env::args() {
         if arg == "--next" || arg == "-n" {
@@ -278,7 +303,7 @@ fn real_main() -> std::result::Result<(), apple_nvram::Error> {
     let ix = input.trim().parse::<usize>().unwrap() - 1;
     if ix >= cands.len() {
         eprintln!("index out of range");
-        return Ok(());
+        return Err(Error::OutOfRange);
     };
     let boot_str = format!(
         "EF57347C-0000-AA11-AA11-00306543ECAC:{}:{}",

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-use std::{borrow::Cow, fs::OpenOptions, io::Read};
+use std::{borrow::Cow, fs::OpenOptions, io::Read, process::ExitCode};
 
 use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 
@@ -27,8 +27,14 @@ impl From<apple_nvram::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-fn main() {
-    real_main().unwrap()
+fn main() -> ExitCode {
+    match real_main() {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{:?}", e);
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn real_main() -> Result<()> {
