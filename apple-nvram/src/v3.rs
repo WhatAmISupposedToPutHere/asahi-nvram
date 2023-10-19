@@ -147,10 +147,7 @@ impl<'a> Partition<'a> {
                     };
 
                     offset += v.size();
-                    // println!("DEBUG 0x{:04x} {}", offset, &v);
-                    // if v.header.state == VAR_ADDED {
                     values.push((key, v));
-                    // }
                 }
                 _ => {
                     offset += VAR_HEADER_SIZE;
