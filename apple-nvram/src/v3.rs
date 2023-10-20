@@ -118,11 +118,14 @@ impl<'a> Nvram<'a> {
     }
 
     fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
-        self.partitions.iter().filter_map(|x| match x {
-            Slot::Valid(p) => Some(p),
-            Slot::Invalid => None,
-            Slot::Empty => None,
-        })
+        self.partitions
+            .iter()
+            .take(self.partition_count)
+            .filter_map(|x| match x {
+                Slot::Valid(p) => Some(p),
+                Slot::Invalid => None,
+                Slot::Empty => None,
+            })
     }
 
     fn active_part(&self) -> &Partition<'a> {
