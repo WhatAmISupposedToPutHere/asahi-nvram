@@ -11,6 +11,7 @@ const VARIABLE_STORE_SIGNATURE: &[u8; 4] = b"3VVN";
 const VARIABLE_STORE_VERSION: u8 = 0x1;
 const VARIABLE_DATA: u16 = 0x55AA;
 
+const PARTITION_SIZE: usize = 0x10000;
 const STORE_HEADER_SIZE: usize = 24;
 const VAR_HEADER_SIZE: usize = 36;
 const VAR_ADDED: u8 = 0x7F;
@@ -33,18 +34,18 @@ pub struct Nvram<'a> {
 
 impl<'a> Nvram<'a> {
     pub fn parse(nvr: &'a [u8]) -> Result<Nvram<'_>> {
-        let partition_count = nvr.len() / 0x10000;
+        let partition_count = nvr.len() / PARTITION_SIZE;
         let mut partitions: [Option<Partition<'a>>; 16] = Default::default();
         let mut active = 0;
         let mut max_gen = 0;
         let mut valid_partitions = 0;
 
         for i in 0..partition_count {
-            let offset = i * 0x10000;
+            let offset = i * PARTITION_SIZE;
             if offset >= nvr.len() {
                 break;
             }
-            match Partition::parse(&nvr[offset..offset + 0x10000]) {
+            match Partition::parse(&nvr[offset..offset + PARTITION_SIZE]) {
                 Ok(p) => {
                     let p_gen = p.generation();
                     if p_gen > max_gen {
@@ -79,7 +80,7 @@ impl<'a> Nvram<'a> {
 
 impl<'a> crate::Nvram<'a> for Nvram<'a> {
     fn serialize(&self) -> Result<Vec<u8>> {
-        let mut v = Vec::with_capacity(self.partition_count * 0x10000);
+        let mut v = Vec::with_capacity(self.partition_count * PARTITION_SIZE);
         for p in self.partitions() {
             p.serialize(&mut v);
         }
@@ -102,13 +103,13 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         let offset;
         // check total size before serializing
         // if it's too big, copy added variables to the next bank
-        if self.active_part().total_size() <= 0x10000 {
-            offset = self.active as u32 * 0x10000;
+        if self.active_part().total_size() <= PARTITION_SIZE {
+            offset = (self.active * PARTITION_SIZE) as u32;
         } else {
             let new_active = (self.active + 1) % self.partition_count;
-            offset = new_active as u32 * 0x10000;
+            offset = (new_active * PARTITION_SIZE) as u32;
             if let Some(_) = self.partitions[new_active] {
-                w.erase_if_needed(offset, 0x10000);
+                w.erase_if_needed(offset, PARTITION_SIZE);
             }
             // must only clone 0x7F variables to the next partition
             self.partitions[new_active] = Some(
@@ -120,7 +121,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
             self.active = new_active;
         }
 
-        let mut data = Vec::with_capacity(0x10000);
+        let mut data = Vec::with_capacity(PARTITION_SIZE);
         self.active_part().serialize(&mut data);
         w.write_all(offset, &data)
             .map_err(|e| Error::ApplyError(e))?;
