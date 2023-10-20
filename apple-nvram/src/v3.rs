@@ -171,6 +171,10 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
                     .clone_active(),
             );
             self.active = new_active;
+            // we could still have too many active variables
+            if self.active_part().total_size() > PARTITION_SIZE {
+                return Err(Error::SectionTooBig);
+            }
         }
 
         let mut data = Vec::with_capacity(PARTITION_SIZE);
