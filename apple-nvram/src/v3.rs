@@ -1,9 +1,10 @@
 use std::{
     borrow::Cow,
     fmt::{Display, Formatter},
+    ops::ControlFlow,
 };
 
-use crate::{Error, Result, VarType};
+use crate::{Error, VarType};
 
 // https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IONVRAMV3Handler.cpp#L630
 
@@ -25,17 +26,58 @@ const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[
     0x40, 0xA0, 0xDD, 0xD2, 0x77, 0xF8, 0x43, 0x92, 0xB4, 0xA3, 0x1E, 0x73, 0x04, 0x20, 0x65, 0x16,
 ];
 
+#[derive(Debug, Default)]
+enum Slot<T> {
+    Valid(T),
+    Invalid,
+    #[default]
+    Empty,
+}
+
+impl<T> Slot<T> {
+    pub const fn as_ref(&self) -> Slot<&T> {
+        match self {
+            Slot::Valid(v) => Slot::Valid(v),
+            Slot::Invalid => Slot::Invalid,
+            Slot::Empty => Slot::Empty,
+        }
+    }
+
+    pub fn as_mut(&mut self) -> Slot<&mut T> {
+        match self {
+            Slot::Valid(v) => Slot::Valid(v),
+            Slot::Invalid => Slot::Invalid,
+            Slot::Empty => Slot::Empty,
+        }
+    }
+
+    pub fn unwrap(self) -> T {
+        match self {
+            Slot::Valid(v) => v,
+            Slot::Invalid => panic!("called `Slot::unwrap()` on an `Invalid` value"),
+            Slot::Empty => panic!("called `Slot::unwrap()` on an `Empty` value"),
+        }
+    }
+
+    pub fn empty(&self) -> bool {
+        match self {
+            Slot::Empty => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Nvram<'a> {
-    partitions: [Option<Partition<'a>>; 16],
+    partitions: [Slot<Partition<'a>>; 16],
     partition_count: usize,
     active: usize,
 }
 
 impl<'a> Nvram<'a> {
-    pub fn parse(nvr: &'a [u8]) -> Result<Nvram<'_>> {
+    pub fn parse(nvr: &'a [u8]) -> crate::Result<Nvram<'_>> {
         let partition_count = nvr.len() / PARTITION_SIZE;
-        let mut partitions: [Option<Partition<'a>>; 16] = Default::default();
+        let mut partitions: [Slot<Partition<'a>>; 16] = Default::default();
         let mut active = 0;
         let mut max_gen = 0;
         let mut valid_partitions = 0;
@@ -52,16 +94,22 @@ impl<'a> Nvram<'a> {
                         active = i;
                         max_gen = p_gen;
                     }
-                    partitions[i] = Some(p);
+                    partitions[i] = Slot::Valid(p);
                     valid_partitions += 1;
                 }
-                Err(_e) => {}
+                Err(V3Error::Empty) => {
+                    partitions[i] = Slot::Empty;
+                }
+                Err(_) => {
+                    partitions[i] = Slot::Invalid;
+                }
             }
         }
 
         if valid_partitions == 0 {
             return Err(Error::ParseError);
         }
+
         Ok(Nvram {
             partitions,
             partition_count,
@@ -70,16 +118,20 @@ impl<'a> Nvram<'a> {
     }
 
     fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
-        self.partitions.iter().filter_map(|x| x.as_ref())
+        self.partitions.iter().filter_map(|x| match x {
+            Slot::Valid(p) => Some(p),
+            Slot::Invalid => None,
+            Slot::Empty => None,
+        })
     }
 
-    pub fn active_part(&self) -> &Partition<'a> {
+    fn active_part(&self) -> &Partition<'a> {
         self.partitions[self.active].as_ref().unwrap()
     }
 }
 
 impl<'a> crate::Nvram<'a> for Nvram<'a> {
-    fn serialize(&self) -> Result<Vec<u8>> {
+    fn serialize(&self) -> crate::Result<Vec<u8>> {
         let mut v = Vec::with_capacity(self.partition_count * PARTITION_SIZE);
         for p in self.partitions() {
             p.serialize(&mut v);
@@ -99,7 +151,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         self.partitions[self.active].as_mut().unwrap()
     }
 
-    fn apply(&mut self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+    fn apply(&mut self, w: &mut dyn crate::NvramWriter) -> crate::Result<()> {
         let offset;
         // check total size before serializing
         // if it's too big, copy added variables to the next bank
@@ -108,11 +160,11 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         } else {
             let new_active = (self.active + 1) % self.partition_count;
             offset = (new_active * PARTITION_SIZE) as u32;
-            if let Some(_) = self.partitions[new_active] {
+            if !self.partitions[new_active].empty() {
                 w.erase_if_needed(offset, PARTITION_SIZE);
             }
             // must only clone 0x7F variables to the next partition
-            self.partitions[new_active] = Some(
+            self.partitions[new_active] = Slot::Valid(
                 self.partitions[self.active]
                     .as_ref()
                     .unwrap()
@@ -135,55 +187,65 @@ pub struct Partition<'a> {
     pub values: Vec<(&'a [u8], Variable<'a>)>,
 }
 
+enum V3Error {
+    ParseError,
+    Empty,
+}
+
+type Result<T> = std::result::Result<T, V3Error>;
+
 impl<'a> Partition<'a> {
-    pub fn parse(nvr: &[u8]) -> Result<Partition<'_>> {
-        let header = StoreHeader::parse(&nvr[..STORE_HEADER_SIZE])?;
-        let mut offset = STORE_HEADER_SIZE;
-        let mut values = Vec::new();
+    fn parse(nvr: &'a [u8]) -> Result<Partition<'a>> {
+        if let Ok(header) = StoreHeader::parse(&nvr[..STORE_HEADER_SIZE]) {
+            let mut offset = STORE_HEADER_SIZE;
+            let mut values = Vec::new();
 
-        while offset + VAR_HEADER_SIZE < header.size() {
-            // let mut empty = true;
-            // for i in 0..VAR_HEADER_SIZE {
-            //     if nvr[offset + i] != 0 && nvr[offset + i] != 0xFF {
-            //         empty = false;
-            //         break;
-            //     }
-            // }
-            // if empty {
-            //     println!("DEBUG: stopped at offset 0x{:04x}", offset);
-            //     break
-            // }
-
-            match VarHeader::parse(&nvr[offset..]) {
-                Ok(v_header) => {
-                    let k_begin = offset + VAR_HEADER_SIZE;
-                    let k_end = k_begin + v_header.name_size as usize;
-                    let key = &nvr[k_begin..k_end - 1];
-
-                    let v_begin = k_end;
-                    let v_end = v_begin + v_header.data_size as usize;
-                    let value = &nvr[v_begin..v_end];
-
-                    let crc = crc32fast::hash(value);
-                    if crc != v_header.crc {
-                        return Err(Error::ParseError);
+            while offset + VAR_HEADER_SIZE < header.size() {
+                let mut empty = true;
+                for i in 0..VAR_HEADER_SIZE {
+                    if nvr[offset + i] != 0 && nvr[offset + i] != 0xFF {
+                        empty = false;
+                        break;
                     }
-                    let v = Variable {
-                        header: v_header,
-                        key,
-                        value: Cow::Borrowed(value),
-                    };
+                }
+                if empty {
+                    break;
+                }
 
-                    offset += v.size();
-                    values.push((key, v));
+                let v_header = VarHeader::parse(&nvr[offset..])?;
+
+                let k_begin = offset + VAR_HEADER_SIZE;
+                let k_end = k_begin + v_header.name_size as usize;
+                let key = &nvr[k_begin..k_end - 1];
+
+                let v_begin = k_end;
+                let v_end = v_begin + v_header.data_size as usize;
+                let value = &nvr[v_begin..v_end];
+
+                let crc = crc32fast::hash(value);
+                if crc != v_header.crc {
+                    return Err(V3Error::ParseError);
                 }
-                _ => {
-                    offset += VAR_HEADER_SIZE;
-                }
+                let v = Variable {
+                    header: v_header,
+                    key,
+                    value: Cow::Borrowed(value),
+                };
+
+                offset += v.size();
+                values.push((key, v));
+            }
+
+            Ok(Partition { header, values })
+        } else {
+            match nvr.iter().copied().try_for_each(|v| match v {
+                0xFF => ControlFlow::Continue(()),
+                _ => ControlFlow::Break(()),
+            }) {
+                ControlFlow::Continue(_) => Err(V3Error::Empty),
+                ControlFlow::Break(_) => Err(V3Error::ParseError),
             }
         }
-
-        Ok(Partition { header, values })
     }
 
     fn generation(&self) -> u32 {
@@ -318,7 +380,7 @@ pub struct StoreHeader<'a> {
 }
 
 impl<'a> StoreHeader<'a> {
-    pub fn parse(nvr: &[u8]) -> Result<StoreHeader<'_>> {
+    fn parse(nvr: &[u8]) -> Result<StoreHeader<'_>> {
         let name = &nvr[..4];
         let size = u32::from_le_bytes(nvr[4..8].try_into().unwrap());
         let generation = u32::from_le_bytes(nvr[8..12].try_into().unwrap());
@@ -329,10 +391,10 @@ impl<'a> StoreHeader<'a> {
         let common_size = u32::from_le_bytes(nvr[20..24].try_into().unwrap());
 
         if name != VARIABLE_STORE_SIGNATURE {
-            return Err(Error::ParseError);
+            return Err(V3Error::ParseError);
         }
         if version != VARIABLE_STORE_VERSION {
-            return Err(Error::ParseError);
+            return Err(V3Error::ParseError);
         }
 
         Ok(StoreHeader {
@@ -359,7 +421,7 @@ impl<'a> StoreHeader<'a> {
         v.extend_from_slice(&self.common_size.to_le_bytes());
     }
 
-    pub fn size(&self) -> usize {
+    fn size(&self) -> usize {
         self.size as usize
     }
 }
@@ -372,11 +434,11 @@ pub struct Variable<'a> {
 }
 
 impl<'a> Variable<'a> {
-    pub fn size(&self) -> usize {
+    fn size(&self) -> usize {
         VAR_HEADER_SIZE + (self.header.name_size + self.header.data_size) as usize
     }
 
-    pub fn typ(&self) -> VarType {
+    fn typ(&self) -> VarType {
         if self.header.guid == APPLE_SYSTEM_VARIABLE_GUID {
             return VarType::System;
         }
@@ -432,10 +494,10 @@ pub struct VarHeader<'a> {
 }
 
 impl<'a> VarHeader<'a> {
-    pub fn parse(nvr: &[u8]) -> Result<VarHeader<'_>> {
+    fn parse(nvr: &[u8]) -> Result<VarHeader<'_>> {
         let start_id = u16::from_le_bytes(nvr[..2].try_into().unwrap());
         if start_id != VARIABLE_DATA {
-            return Err(Error::ParseError);
+            return Err(V3Error::ParseError);
         }
         let state = nvr[2];
         let attrs = u32::from_le_bytes(nvr[4..8].try_into().unwrap());
@@ -445,7 +507,7 @@ impl<'a> VarHeader<'a> {
         let crc = u32::from_le_bytes(nvr[32..36].try_into().unwrap());
 
         if VAR_HEADER_SIZE + (name_size + data_size) as usize > nvr.len() {
-            return Err(Error::ParseError);
+            return Err(V3Error::ParseError);
         }
 
         Ok(VarHeader {
@@ -458,7 +520,7 @@ impl<'a> VarHeader<'a> {
         })
     }
 
-    pub fn serialize(&self, v: &mut Vec<u8>) {
+    fn serialize(&self, v: &mut Vec<u8>) {
         v.extend_from_slice(&VARIABLE_DATA.to_le_bytes());
         v.push(self.state);
         v.push(0); // reserved
