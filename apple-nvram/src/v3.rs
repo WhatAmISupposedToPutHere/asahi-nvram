@@ -200,7 +200,7 @@ impl<'a> Partition<'a> {
     }
 
     fn total_size(&self) -> usize {
-        self.values.iter().fold(0, |acc, v| acc + v.1.size())
+        STORE_HEADER_SIZE + self.values.iter().fold(0, |acc, v| acc + v.1.size())
     }
 
     fn serialize(&self, v: &mut Vec<u8>) {
@@ -210,6 +210,7 @@ impl<'a> Partition<'a> {
             var.serialize(v);
         }
         let my_size = v.len() - start_size;
+        debug_assert!(v.len() == self.total_size());
 
         // padding
         for _ in 0..(self.header.size() - my_size) {
