@@ -17,9 +17,12 @@ impl MtdWriter {
 }
 
 impl NvramWriter for MtdWriter {
+    fn erase_if_needed(&mut self, offset: u32, size: usize) {
+        erase_if_needed(&self.file, offset, size);
+    }
+
     fn write_all(&mut self, offset: u32, buf: &[u8]) -> std::io::Result<()> {
         self.file.seek(SeekFrom::Start(offset as u64))?;
-        erase_if_needed_at(&self.file, offset, buf.len());
         self.file.write_all(buf)?;
 
         Ok(())
@@ -47,11 +50,7 @@ pub struct MtdInfoUser {
 nix::ioctl_write_ptr!(mtd_mem_erase, b'M', 2, EraseInfoUser);
 nix::ioctl_read!(mtd_mem_get_info, b'M', 1, MtdInfoUser);
 
-pub fn erase_if_needed(file: &File, size: usize) {
-    erase_if_needed_at(file, 0, size)
-}
-
-fn erase_if_needed_at(file: &File, offset: u32, size: usize) {
+fn erase_if_needed(file: &File, offset: u32, size: usize) {
     if unsafe { mtd_mem_get_info(file.as_raw_fd(), &mut MtdInfoUser::default()) }.is_err() {
         return;
     }

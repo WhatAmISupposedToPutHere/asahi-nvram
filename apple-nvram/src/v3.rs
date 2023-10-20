@@ -14,6 +14,8 @@ const VARIABLE_DATA: u16 = 0x55AA;
 const STORE_HEADER_SIZE: usize = 24;
 const VAR_HEADER_SIZE: usize = 36;
 const VAR_ADDED: u8 = 0x7F;
+const VAR_IN_DELETED_TRANSITION: u8 = 0xFE;
+const VAR_DELETED: u8 = 0xFD;
 
 const APPLE_COMMON_VARIABLE_GUID: &[u8; 16] = &[
     0x7C, 0x43, 0x61, 0x10, 0xAB, 0x2A, 0x4B, 0xBB, 0xA8, 0x80, 0xFE, 0x41, 0x99, 0x5C, 0x9F, 0x82,
@@ -90,11 +92,31 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         self.partitions[self.active].as_mut().unwrap()
     }
 
-    fn apply(&self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+    fn apply(&mut self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+        let offset;
+        // check total size before serializing
+        // if it's too big, copy added variables to the next bank
+        if self.active_part().total_size() <= 0x10000 {
+            offset = self.active as u32 * 0x10000;
+        } else {
+            let new_active = (self.active + 1) % 16;
+            offset = new_active as u32 * 0x10000;
+            if let Some(_) = self.partitions[new_active] {
+                w.erase_if_needed(offset, 0x10000);
+            }
+            // must only clone 0x7F variables to the next partition
+            self.partitions[new_active] = Some(
+                self.partitions[self.active]
+                    .as_ref()
+                    .unwrap()
+                    .clone_active(),
+            );
+            self.active = new_active;
+        }
+
         let mut data = Vec::with_capacity(0x10000);
         self.active_part().serialize(&mut data);
-
-        w.write_all(self.active as u32 * 0x10000, &data)
+        w.write_all(offset, &data)
             .map_err(|e| Error::ApplyError(e))?;
         Ok(())
     }
@@ -104,7 +126,6 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
     pub values: Vec<(&'a [u8], Variable<'a>)>,
-    pub raw_data: &'a [u8],
 }
 
 impl<'a> Partition<'a> {
@@ -155,30 +176,22 @@ impl<'a> Partition<'a> {
             }
         }
 
-        Ok(Partition {
-            header,
-            values,
-            raw_data: nvr,
-        })
+        Ok(Partition { header, values })
     }
 
     fn generation(&self) -> u32 {
         self.header.generation
     }
 
-    fn entry_or_default(&mut self, key: &'a [u8]) -> &mut Variable<'a> {
-        let idx = self
-            .values
+    fn entries(&mut self, key: &'a [u8]) -> impl Iterator<Item = &mut Variable<'a>> {
+        self.values
             .iter_mut()
-            .position(|e| e.0 == key && e.1.header.state == VAR_ADDED);
+            .filter(move |e| e.0 == key && e.1.header.state == VAR_ADDED)
+            .map(|e| &mut e.1)
+    }
 
-        match idx {
-            Some(idx) => self.values.get_mut(idx).map(|e| &mut e.1).unwrap(),
-            None => {
-                self.values.push((key, Variable::default()));
-                self.values.last_mut().map(|e| &mut e.1).unwrap()
-            }
-        }
+    fn total_size(&self) -> usize {
+        self.values.iter().fold(0, |acc, v| acc + v.1.size())
     }
 
     fn serialize(&self, v: &mut Vec<u8>) {
@@ -198,6 +211,25 @@ impl<'a> Partition<'a> {
     fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
         self.values.iter().map(|e| &e.1)
     }
+
+    fn clone_active(&self) -> Partition<'a> {
+        let mut header = self.header.clone();
+        header.generation += 1;
+        Partition {
+            header,
+            values: self
+                .values
+                .iter()
+                .filter_map(|v| {
+                    if v.1.header.state == VAR_ADDED {
+                        Some(v.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        }
+    }
 }
 
 impl<'a> crate::Partition<'a> for Partition<'a> {
@@ -212,28 +244,34 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
     }
 
     fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
-        let var = self.entry_or_default(key);
+        // invalidate any previous variable instances
+        for var in self.entries(key) {
+            var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
+        }
 
-        var.header.state = VAR_ADDED;
-        var.header.name_size = (key.len() + 1) as u32;
-        var.header.data_size = value.len() as u32;
-        var.header.guid = match _typ {
+        let guid = match _typ {
             VarType::Common => APPLE_COMMON_VARIABLE_GUID,
             VarType::System => APPLE_SYSTEM_VARIABLE_GUID,
         };
-        var.header.crc = crc32fast::hash(&value);
-
-        var.key = key;
-        var.value = value;
+        let var = Variable {
+            header: VarHeader {
+                state: VAR_ADDED,
+                attrs: 0,
+                name_size: (key.len() + 1) as u32,
+                data_size: value.len() as u32,
+                guid,
+                crc: crc32fast::hash(&value),
+            },
+            key,
+            value,
+        };
+        self.values.push((key, var));
     }
 
     fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
-        let idx = self
-            .values
-            .iter()
-            .position(|e| e.0 == key && e.1.header.state == VAR_ADDED);
-        if let Some(idx) = idx {
-            self.values.remove(idx);
+        // invalidate all previous variable instances
+        for var in self.entries(key) {
+            var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
         }
     }
 

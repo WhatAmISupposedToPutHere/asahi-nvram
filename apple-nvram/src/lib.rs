@@ -73,6 +73,7 @@ pub fn nvram_parse<'a>(nvr: &'a [u8]) -> Result<Box<dyn Nvram<'a> + 'a>> {
 }
 
 pub trait NvramWriter {
+    fn erase_if_needed(&mut self, offset: u32, size: usize);
     fn write_all(&mut self, offset: u32, buf: &[u8]) -> std::io::Result<()>;
 }
 
@@ -81,7 +82,7 @@ pub trait Nvram<'a> {
     fn active_part_mut(&mut self) -> &mut dyn Partition<'a>;
     fn partitions(&self) -> Box<dyn Iterator<Item = &dyn Partition<'a>> + '_>;
     fn serialize(&self) -> Result<Vec<u8>>;
-    fn apply(&self, w: &mut dyn NvramWriter) -> Result<()>;
+    fn apply(&mut self, w: &mut dyn NvramWriter) -> Result<()>;
 }
 
 pub trait Partition<'a>: Display {

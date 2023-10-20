@@ -406,8 +406,9 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         Box::new(self.partitions().map(|e| e as &dyn crate::Partition<'a>))
     }
 
-    fn apply(&self, w: &mut dyn crate::NvramWriter) -> Result<()> {
+    fn apply(&mut self, w: &mut dyn crate::NvramWriter) -> Result<()> {
         let data = self.serialize()?;
+        w.erase_if_needed(0, data.len());
         w.write_all(0, &data).map_err(|e| Error::ApplyError(e))?;
         Ok(())
     }
