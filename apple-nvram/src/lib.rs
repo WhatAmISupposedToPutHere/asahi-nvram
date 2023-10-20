@@ -49,7 +49,7 @@ pub enum Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum VarType {
     Common,
     System,

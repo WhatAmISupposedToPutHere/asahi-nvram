@@ -183,11 +183,14 @@ impl<'a> Partition<'a> {
         self.header.generation
     }
 
-    fn entries(&mut self, key: &'a [u8]) -> impl Iterator<Item = &mut Variable<'a>> {
-        self.values
-            .iter_mut()
-            .filter(move |e| e.0 == key && e.1.header.state == VAR_ADDED)
-            .map(|e| &mut e.1)
+    fn entries(&mut self, key: &'a [u8], typ: VarType) -> impl Iterator<Item = &mut Variable<'a>> {
+        self.values.iter_mut().filter_map(move |e| {
+            if e.0 == key && e.1.typ() == typ && e.1.header.state == VAR_ADDED {
+                Some(&mut e.1)
+            } else {
+                None
+            }
+        })
     }
 
     fn total_size(&self) -> usize {
@@ -243,13 +246,13 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
         })
     }
 
-    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, _typ: VarType) {
+    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
         // invalidate any previous variable instances
-        for var in self.entries(key) {
+        for var in self.entries(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
         }
 
-        let guid = match _typ {
+        let guid = match typ {
             VarType::Common => APPLE_COMMON_VARIABLE_GUID,
             VarType::System => APPLE_SYSTEM_VARIABLE_GUID,
         };
@@ -268,9 +271,9 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
         self.values.push((key, var));
     }
 
-    fn remove_variable(&mut self, key: &'a [u8], _typ: VarType) {
+    fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
         // invalidate all previous variable instances
-        for var in self.entries(key) {
+        for var in self.entries(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
         }
     }
