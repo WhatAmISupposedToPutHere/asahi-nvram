@@ -26,18 +26,20 @@ const APPLE_SYSTEM_VARIABLE_GUID: &[u8; 16] = &[
 
 #[derive(Debug)]
 pub struct Nvram<'a> {
-    pub partitions: [Option<Partition<'a>>; 16],
-    pub active: usize,
+    partitions: [Option<Partition<'a>>; 16],
+    partition_count: usize,
+    active: usize,
 }
 
 impl<'a> Nvram<'a> {
     pub fn parse(nvr: &'a [u8]) -> Result<Nvram<'_>> {
+        let partition_count = nvr.len() / 0x10000;
         let mut partitions: [Option<Partition<'a>>; 16] = Default::default();
         let mut active = 0;
         let mut max_gen = 0;
         let mut valid_partitions = 0;
 
-        for i in 0..16 {
+        for i in 0..partition_count {
             let offset = i * 0x10000;
             if offset >= nvr.len() {
                 break;
@@ -59,7 +61,11 @@ impl<'a> Nvram<'a> {
         if valid_partitions == 0 {
             return Err(Error::ParseError);
         }
-        Ok(Nvram { partitions, active })
+        Ok(Nvram {
+            partitions,
+            partition_count,
+            active,
+        })
     }
 
     fn partitions(&self) -> impl Iterator<Item = &Partition<'a>> {
@@ -73,7 +79,7 @@ impl<'a> Nvram<'a> {
 
 impl<'a> crate::Nvram<'a> for Nvram<'a> {
     fn serialize(&self) -> Result<Vec<u8>> {
-        let mut v = Vec::with_capacity(16 * 0x10000);
+        let mut v = Vec::with_capacity(self.partition_count * 0x10000);
         for p in self.partitions() {
             p.serialize(&mut v);
         }
@@ -99,7 +105,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         if self.active_part().total_size() <= 0x10000 {
             offset = self.active as u32 * 0x10000;
         } else {
-            let new_active = (self.active + 1) % 16;
+            let new_active = (self.active + 1) % self.partition_count;
             offset = new_active as u32 * 0x10000;
             if let Some(_) = self.partitions[new_active] {
                 w.erase_if_needed(offset, 0x10000);
