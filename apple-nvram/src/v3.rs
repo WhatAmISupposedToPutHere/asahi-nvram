@@ -131,6 +131,11 @@ impl<'a> Nvram<'a> {
     fn active_part(&self) -> &Partition<'a> {
         self.partitions[self.active].as_ref().unwrap()
     }
+
+    #[cfg(test)]
+    fn active_part_mut(&mut self) -> &mut Partition<'a> {
+        self.partitions[self.active].as_mut().unwrap()
+    }
 }
 
 impl<'a> crate::Nvram<'a> for Nvram<'a> {
@@ -194,6 +199,7 @@ pub struct Partition<'a> {
     pub values: Vec<(&'a [u8], Variable<'a>)>,
 }
 
+#[derive(Debug)]
 enum V3Error {
     ParseError,
     Empty,
@@ -261,12 +267,21 @@ impl<'a> Partition<'a> {
 
     fn entries(&mut self, key: &'a [u8], typ: VarType) -> impl Iterator<Item = &mut Variable<'a>> {
         self.values.iter_mut().filter_map(move |e| {
-            if e.0 == key && e.1.typ() == typ && e.1.header.state == VAR_ADDED {
+            if e.0 == key && e.1.typ() == typ {
                 Some(&mut e.1)
             } else {
                 None
             }
         })
+    }
+
+    fn entries_added(
+        &mut self,
+        key: &'a [u8],
+        typ: VarType,
+    ) -> impl Iterator<Item = &mut Variable<'a>> {
+        self.entries(key, typ)
+            .filter(|v| v.header.state == VAR_ADDED)
     }
 
     fn total_size(&self) -> usize {
@@ -325,7 +340,7 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
 
     fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
         // invalidate any previous variable instances
-        for var in self.entries(key, typ) {
+        for var in self.entries_added(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
         }
 
@@ -350,7 +365,7 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
 
     fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
         // invalidate all previous variable instances
-        for var in self.entries(key, typ) {
+        for var in self.entries_added(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
         }
     }
@@ -536,5 +551,138 @@ impl<'a> VarHeader<'a> {
         v.extend_from_slice(&self.data_size.to_le_bytes());
         v.extend_from_slice(self.guid);
         v.extend_from_slice(&self.crc.to_le_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Nvram as NvramT, NvramWriter, Partition};
+
+    struct TestNvram {
+        data: Vec<u8>,
+        erase_count: usize,
+    }
+
+    impl TestNvram {
+        fn new(data: Vec<u8>) -> TestNvram {
+            Self {
+                data,
+                erase_count: 0,
+            }
+        }
+
+        fn get_data(&self) -> &[u8] {
+            &self.data
+        }
+    }
+
+    impl NvramWriter for TestNvram {
+        fn erase_if_needed(&mut self, offset: u32, size: usize) {
+            for b in self.data.iter_mut().skip(offset as usize).take(size) {
+                *b = 0xFF;
+            }
+            self.erase_count += 1;
+        }
+
+        fn write_all(&mut self, offset: u32, buf: &[u8]) -> std::io::Result<()> {
+            for (d, s) in self
+                .data
+                .iter_mut()
+                .skip(offset as usize)
+                .take(buf.len())
+                .zip(buf.iter().copied())
+            {
+                *d &= s;
+            }
+            Ok(())
+        }
+    }
+
+    #[rustfmt::skip]
+    fn store_header() -> &'static [u8] {
+        &[
+            0x33, 0x56, 0x56, 0x4e, 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0xfe, 0x5a, 0x01, 0x00,
+            0x00, 0x40, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+        ]
+    }
+
+    fn empty_nvram(bank_count: usize) -> Vec<u8> {
+        let mut data = vec![0xFF; PARTITION_SIZE * bank_count];
+        data[0..STORE_HEADER_SIZE].copy_from_slice(store_header());
+        data
+    }
+
+    #[test]
+    fn test_insert_variable() -> crate::Result<()> {
+        let mut nvr = TestNvram::new(empty_nvram(2));
+        let data = nvr.get_data().to_owned();
+        let mut nv = Nvram::parse(&data)?;
+
+        nv.active_part_mut().insert_variable(
+            b"test-variable",
+            Cow::Borrowed(b"test-value"),
+            VarType::Common,
+        );
+
+        // write changes
+        nv.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 0);
+
+        // try to parse again
+        let data_after = nvr.get_data().to_owned();
+        let mut nv_after = Nvram::parse(&data_after)?;
+
+        let test_var = nv_after
+            .active_part()
+            .get_variable(b"test-variable", VarType::Common)
+            .unwrap();
+
+        assert_eq!(test_var.value(), Cow::Borrowed(b"test-value"));
+
+        let test_var_entries: Vec<_> = nv_after
+            .active_part_mut()
+            .entries(b"test-variable", VarType::Common)
+            .collect();
+
+        assert_eq!(test_var_entries.len(), 1);
+        assert_eq!(test_var_entries[0].header.state, VAR_ADDED);
+
+        // update variable
+        nv_after.active_part_mut().insert_variable(
+            b"test-variable",
+            Cow::Borrowed(b"test-value2"),
+            VarType::Common,
+        );
+
+        // write changes
+        nv_after.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 0);
+
+        // try to parse again
+        let data_after2 = nvr.get_data().to_owned();
+        let mut nv_after2 = Nvram::parse(&data_after2)?;
+
+        let test_var2 = nv_after2
+            .active_part()
+            .get_variable(b"test-variable", VarType::Common)
+            .unwrap();
+
+        assert_eq!(test_var2.value(), Cow::Borrowed(b"test-value2"));
+
+        let test_var2_entries: Vec<_> = nv_after2
+            .active_part_mut()
+            .entries(b"test-variable", VarType::Common)
+            .collect();
+
+        assert_eq!(test_var2_entries.len(), 2);
+        assert_eq!(
+            test_var2_entries[0].header.state,
+            VAR_ADDED & VAR_DELETED & VAR_IN_DELETED_TRANSITION
+        );
+        assert_eq!(test_var2_entries[1].header.state, VAR_ADDED);
+
+        Ok(())
     }
 }
