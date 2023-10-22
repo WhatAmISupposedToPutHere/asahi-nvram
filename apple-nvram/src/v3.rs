@@ -658,6 +658,9 @@ mod tests {
         let data = nvr.get_data().to_owned();
         let mut nv = Nvram::parse(&data)?;
 
+        assert!(matches!(nv.partitions[0], Slot::Valid(_)));
+        assert!(matches!(nv.partitions[1], Slot::Empty));
+
         nv.active_part_mut().insert_variable(
             b"test-variable",
             Cow::Borrowed(b"test-value"),
@@ -720,6 +723,109 @@ mod tests {
             VAR_ADDED & VAR_DELETED & VAR_IN_DELETED_TRANSITION
         );
         assert_eq!(test_var2_entries[1].header.state, VAR_ADDED);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_write_to_next_bank() -> crate::Result<()> {
+        let mut nvr = TestNvram::new(empty_nvram(2));
+        // write something to the second bank to force nvram erase later
+        nvr.data[0x10000..0x10007].copy_from_slice(b"garbage");
+
+        let data = nvr.get_data().to_owned();
+        let mut nv = Nvram::parse(&data)?;
+
+        assert!(matches!(nv.partitions[0], Slot::Valid(_)));
+        assert!(matches!(nv.partitions[1], Slot::Invalid));
+
+        let orig_sys_val = vec![b'.'; 8192];
+        nv.active_part_mut().insert_variable(
+            b"test-large-variable",
+            Cow::Borrowed(&orig_sys_val),
+            VarType::System,
+        );
+
+        let orig_common_val = vec![b'.'; 24576];
+        nv.active_part_mut().insert_variable(
+            b"test-large-variable",
+            Cow::Borrowed(&orig_common_val),
+            VarType::Common,
+        );
+
+        // write changes
+        nv.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 0);
+        assert_eq!(nv.active, 0);
+
+        // try to parse again
+        let data_after = nvr.get_data().to_owned();
+        let mut nv_after = Nvram::parse(&data_after)?;
+        assert_eq!(nv_after.active_part().header.generation, 1);
+
+        assert!(matches!(nv_after.partitions[0], Slot::Valid(_)));
+        assert!(matches!(nv_after.partitions[1], Slot::Invalid));
+
+        // update variable
+        let updated_sys_val = vec![b'.'; 9000];
+        nv_after.active_part_mut().insert_variable(
+            b"test-large-variable",
+            Cow::Borrowed(&updated_sys_val),
+            VarType::System,
+        );
+
+        let updated_common_val = vec![b'.'; 25000];
+        nv_after.active_part_mut().insert_variable(
+            b"test-large-variable",
+            Cow::Borrowed(&updated_common_val),
+            VarType::Common,
+        );
+
+        assert_eq!(nv_after.active_part().values.len(), 4);
+
+        // write changes
+        nv_after.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 1);
+        assert_eq!(nv_after.active, 1);
+        assert_eq!(nv_after.active_part().values.len(), 2);
+
+        // try to parse again
+        let data_after2 = nvr.get_data().to_owned();
+        let nv_after2 = Nvram::parse(&data_after2)?;
+        assert_eq!(nv_after2.active, 1);
+        assert_eq!(nv_after2.active_part().values.len(), 2);
+        assert_eq!(nv_after2.active_part().header.generation, 2);
+
+        assert!(matches!(nv_after2.partitions[0], Slot::Valid(_)));
+        assert!(matches!(nv_after2.partitions[1], Slot::Valid(_)));
+
+        let test_sys_var2 = nv_after2
+            .active_part()
+            .get_variable(b"test-large-variable", VarType::System)
+            .unwrap();
+
+        let test_common_var2 = nv_after2
+            .active_part()
+            .get_variable(b"test-large-variable", VarType::Common)
+            .unwrap();
+
+        assert_eq!(test_sys_var2.value(), Cow::Borrowed(&updated_sys_val));
+        assert_eq!(test_common_var2.value(), Cow::Borrowed(&updated_common_val));
+
+        let test_old_sys_var = nv_after2.partitions[0]
+            .as_ref()
+            .unwrap()
+            .get_variable(b"test-large-variable", VarType::System)
+            .unwrap();
+
+        let test_old_common_var = nv_after2.partitions[0]
+            .as_ref()
+            .unwrap()
+            .get_variable(b"test-large-variable", VarType::Common)
+            .unwrap();
+
+        assert_eq!(test_old_sys_var.value(), Cow::Borrowed(&orig_sys_val));
+        assert_eq!(test_old_common_var.value(), Cow::Borrowed(&orig_common_val));
 
         Ok(())
     }
