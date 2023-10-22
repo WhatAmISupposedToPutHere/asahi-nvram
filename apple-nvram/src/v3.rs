@@ -160,10 +160,19 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
     }
 
     fn apply(&mut self, w: &mut dyn crate::NvramWriter) -> crate::Result<()> {
+        let ap = self.active_part();
         let offset;
-        // check total size before serializing
-        // if it's too big, copy added variables to the next bank
-        if self.active_part().total_size() <= PARTITION_SIZE {
+        // there aren't really any sections in v3 but the store header still
+        // specifies limits for maximum combined size of each kind of variable
+        if ap.system_used() > ap.system_size() {
+            return Err(Error::SectionTooBig);
+        }
+        if ap.common_used() > ap.common_size() {
+            return Err(Error::SectionTooBig);
+        }
+
+        // if total size is too big, copy added variables to the next bank
+        if ap.total_used() <= PARTITION_SIZE {
             offset = (self.active * PARTITION_SIZE) as u32;
         } else {
             let new_active = (self.active + 1) % self.partition_count;
@@ -180,7 +189,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
             );
             self.active = new_active;
             // we could still have too many active variables
-            if self.active_part().total_size() > PARTITION_SIZE {
+            if self.active_part().total_used() > PARTITION_SIZE {
                 return Err(Error::SectionTooBig);
             }
         }
@@ -284,8 +293,37 @@ impl<'a> Partition<'a> {
             .filter(|v| v.header.state == VAR_ADDED)
     }
 
-    fn total_size(&self) -> usize {
+    // total size of store header + all variables including the inactive duplicates
+    fn total_used(&self) -> usize {
         STORE_HEADER_SIZE + self.values.iter().fold(0, |acc, v| acc + v.1.size())
+    }
+
+    // size of active system variables
+    fn system_used(&self) -> usize {
+        self.values
+            .iter()
+            .filter(|&v| {
+                v.1.header.state == VAR_ADDED && v.1.header.guid == APPLE_SYSTEM_VARIABLE_GUID
+            })
+            .fold(0, |acc, v| acc + v.1.size())
+    }
+
+    // size of active common variables
+    fn common_used(&self) -> usize {
+        self.values
+            .iter()
+            .filter(|&v| {
+                v.1.header.state == VAR_ADDED && v.1.header.guid == APPLE_COMMON_VARIABLE_GUID
+            })
+            .fold(0, |acc, v| acc + v.1.size())
+    }
+
+    fn system_size(&self) -> usize {
+        self.header.system_size as usize
+    }
+
+    fn common_size(&self) -> usize {
+        self.header.common_size as usize
     }
 
     fn serialize(&self, v: &mut Vec<u8>) {
@@ -295,7 +333,7 @@ impl<'a> Partition<'a> {
             var.serialize(v);
         }
         let my_size = v.len() - start_size;
-        debug_assert!(v.len() == self.total_size());
+        debug_assert!(v.len() == self.total_used());
 
         // padding
         for _ in 0..(self.header.size() - my_size) {
