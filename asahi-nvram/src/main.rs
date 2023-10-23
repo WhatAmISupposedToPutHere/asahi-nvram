@@ -68,6 +68,8 @@ fn real_main() -> Result<()> {
     match matches.subcommand() {
         Some(("read", args)) => {
             let active = nv.active_part_mut();
+            // println!("stats: {}", active);
+
             let vars = args.get_many::<String>("variable");
             if let Some(vars) = vars {
                 for var in vars {

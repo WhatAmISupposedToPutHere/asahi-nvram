@@ -417,8 +417,11 @@ impl Display for Partition<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "size: {}, generation: {}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
+            "size: {}, total_used: {}, system_used: {}, common_used: {}, generation: 0x{:02x}, state: 0x{:02x}, flags: 0x{:02x}, count: {}",
             self.header.size,
+            self.total_used(),
+            self.system_used(),
+            self.common_used(),
             self.generation(),
             self.header.state,
             self.header.flags,
