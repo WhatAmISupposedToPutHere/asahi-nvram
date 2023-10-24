@@ -247,7 +247,12 @@ impl<'a> Partition<'a> {
                     break;
                 }
 
-                let v_header = VarHeader::parse(&nvr[offset..])?;
+                let Ok(v_header) = VarHeader::parse(&nvr[offset..]) else {
+                    // if there's no valid header, just end here and return values parsed so far
+                    // we also know there is no space for adding any new or updated variables
+                    empty_region_end = offset;
+                    break;
+                };
 
                 let k_begin = offset + VAR_HEADER_SIZE;
                 let k_end = k_begin + v_header.name_size as usize;
