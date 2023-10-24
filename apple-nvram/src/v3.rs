@@ -172,7 +172,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
         }
 
         // if total size is too big, copy added variables to the next bank
-        if ap.total_used() <= PARTITION_SIZE {
+        if ap.total_used() <= ap.usable_size() {
             offset = (self.active * PARTITION_SIZE) as u32;
         } else {
             let new_active = (self.active + 1) % self.partition_count;
@@ -206,6 +206,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
     pub values: Vec<(&'a [u8], Variable<'a>)>,
+    empty_region_end: usize,
 }
 
 #[derive(Debug)]
@@ -221,6 +222,8 @@ impl<'a> Partition<'a> {
         if let Ok(header) = StoreHeader::parse(&nvr[..STORE_HEADER_SIZE]) {
             let mut offset = STORE_HEADER_SIZE;
             let mut values = Vec::new();
+            // one byte past the last 0xFF or the end of partition
+            let mut empty_region_end = header.size();
 
             while offset + VAR_HEADER_SIZE < header.size() {
                 let mut empty = true;
@@ -231,6 +234,16 @@ impl<'a> Partition<'a> {
                     }
                 }
                 if empty {
+                    // check where exactly the "empty" space ends
+                    // (it might not be at the end of partition)
+                    offset += VAR_HEADER_SIZE;
+                    while offset < header.size() {
+                        if nvr[offset] != 0xFF {
+                            empty_region_end = offset;
+                            break;
+                        }
+                        offset += 1
+                    }
                     break;
                 }
 
@@ -258,7 +271,7 @@ impl<'a> Partition<'a> {
                 values.push((key, v));
             }
 
-            Ok(Partition { header, values })
+            Ok(Partition { header, values, empty_region_end })
         } else {
             match nvr.iter().copied().try_for_each(|v| match v {
                 0xFF => ControlFlow::Continue(()),
@@ -326,6 +339,12 @@ impl<'a> Partition<'a> {
         self.header.common_size as usize
     }
 
+    // total usable size, usually equal to partition size
+    // unless there are any non-0xFF bytes after last valid variable
+    fn usable_size(&self) -> usize {
+        self.empty_region_end
+    }
+
     fn serialize(&self, v: &mut Vec<u8>) {
         let start_size = v.len();
         self.header.serialize(v);
@@ -361,6 +380,7 @@ impl<'a> Partition<'a> {
                     }
                 })
                 .collect(),
+            empty_region_end: self.header.size(),
         }
     }
 }
@@ -829,6 +849,63 @@ mod tests {
 
         assert_eq!(test_old_sys_var.value(), Cow::Borrowed(&orig_sys_val));
         assert_eq!(test_old_common_var.value(), Cow::Borrowed(&orig_common_val));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_with_low_space() -> crate::Result<()> {
+        let mut nvr = TestNvram::new(empty_nvram(2));
+        // this will shrink usable size to 100 bytes
+        nvr.data[STORE_HEADER_SIZE + 100] = 0x42;
+
+        let data = nvr.get_data().to_owned();
+        let mut nv = Nvram::parse(&data)?;
+
+        assert!(matches!(nv.partitions[0], Slot::Valid(_)));
+        assert!(matches!(nv.partitions[1], Slot::Empty));
+
+        nv.active_part_mut().insert_variable(
+            b"test-variable",
+            Cow::Borrowed(b"test-value"),
+            VarType::Common,
+        );
+
+        // write changes
+        nv.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 0);
+        assert_eq!(nv.active, 0);
+
+        // try to parse again
+        let data_after = nvr.get_data().to_owned();
+        let mut nv_after = Nvram::parse(&data_after)?;
+
+        let test_var = nv_after
+            .active_part()
+            .get_variable(b"test-variable", VarType::Common)
+            .unwrap();
+
+        assert_eq!(test_var.value(), Cow::Borrowed(b"test-value"));
+
+        let test_var_entries: Vec<_> = nv_after
+            .active_part_mut()
+            .entries(b"test-variable", VarType::Common)
+            .collect();
+
+        assert_eq!(test_var_entries.len(), 1);
+        assert_eq!(test_var_entries[0].header.state, VAR_ADDED);
+
+        // update variable
+        nv_after.active_part_mut().insert_variable(
+            b"test-variable",
+            Cow::Borrowed(b"test-value2"),
+            VarType::Common,
+        );
+
+        // write changes
+        nv_after.apply(&mut nvr)?;
+        assert_eq!(nvr.erase_count, 0);
+        assert_eq!(nv_after.active, 1);
 
         Ok(())
     }
