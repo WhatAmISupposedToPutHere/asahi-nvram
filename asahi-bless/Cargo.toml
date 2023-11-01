@@ -1,6 +1,6 @@
 [package]
 name = "asahi-bless"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "A tool to select active boot partition on ARM Macs"
@@ -16,4 +16,4 @@ gpt = "3"
 
 [dependencies.apple-nvram]
 path = "../apple-nvram"
-version = "0.1"
+version = "0.2"

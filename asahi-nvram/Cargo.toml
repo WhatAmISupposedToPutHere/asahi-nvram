@@ -1,6 +1,6 @@
 [package]
 name = "asahi-nvram"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "A tool to read and write nvram variables on ARM Macs"
@@ -12,7 +12,7 @@ repository = "https://github.com/WhatAmISupposedToPutHere/asahi-nvram"
 
 [dependencies.apple-nvram]
 path = "../apple-nvram"
-version = "0.1"
+version = "0.2"
 
 [dependencies.clap]
 version = "3"
