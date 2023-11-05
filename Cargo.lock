@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "apple-nvram"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "adler32",
  "crc32fast",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "asahi-bless"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apple-nvram",
  "gpt",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "asahi-btsync"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apple-nvram",
  "clap",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "asahi-nvram"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apple-nvram",
  "clap",
@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "asahi-wifisync"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "apple-nvram",
  "clap",

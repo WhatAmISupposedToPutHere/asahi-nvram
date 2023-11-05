@@ -205,7 +205,7 @@ impl<'a> crate::Nvram<'a> for Nvram<'a> {
 #[derive(Debug, Clone)]
 pub struct Partition<'a> {
     pub header: StoreHeader<'a>,
-    pub values: Vec<(&'a [u8], Variable<'a>)>,
+    pub values: Vec<Variable<'a>>,
     empty_region_end: usize,
 }
 
@@ -273,10 +273,14 @@ impl<'a> Partition<'a> {
                 };
 
                 offset += v.size();
-                values.push((key, v));
+                values.push(v);
             }
 
-            Ok(Partition { header, values, empty_region_end })
+            Ok(Partition {
+                header,
+                values,
+                empty_region_end,
+            })
         } else {
             match nvr.iter().copied().try_for_each(|v| match v {
                 0xFF => ControlFlow::Continue(()),
@@ -293,13 +297,9 @@ impl<'a> Partition<'a> {
     }
 
     fn entries(&mut self, key: &'a [u8], typ: VarType) -> impl Iterator<Item = &mut Variable<'a>> {
-        self.values.iter_mut().filter_map(move |e| {
-            if e.0 == key && e.1.typ() == typ {
-                Some(&mut e.1)
-            } else {
-                None
-            }
-        })
+        self.values
+            .iter_mut()
+            .filter(move |e| e.key == key && e.typ() == typ)
     }
 
     fn entries_added(
@@ -313,27 +313,23 @@ impl<'a> Partition<'a> {
 
     // total size of store header + all variables including the inactive duplicates
     fn total_used(&self) -> usize {
-        STORE_HEADER_SIZE + self.values.iter().fold(0, |acc, v| acc + v.1.size())
+        STORE_HEADER_SIZE + self.values.iter().fold(0, |acc, v| acc + v.size())
     }
 
     // size of active system variables
     fn system_used(&self) -> usize {
         self.values
             .iter()
-            .filter(|&v| {
-                v.1.header.state == VAR_ADDED && v.1.header.guid == APPLE_SYSTEM_VARIABLE_GUID
-            })
-            .fold(0, |acc, v| acc + v.1.size())
+            .filter(|&v| v.header.state == VAR_ADDED && v.header.guid == APPLE_SYSTEM_VARIABLE_GUID)
+            .fold(0, |acc, v| acc + v.size())
     }
 
     // size of active common variables
     fn common_used(&self) -> usize {
         self.values
             .iter()
-            .filter(|&v| {
-                v.1.header.state == VAR_ADDED && v.1.header.guid == APPLE_COMMON_VARIABLE_GUID
-            })
-            .fold(0, |acc, v| acc + v.1.size())
+            .filter(|&v| v.header.state == VAR_ADDED && v.header.guid == APPLE_COMMON_VARIABLE_GUID)
+            .fold(0, |acc, v| acc + v.size())
     }
 
     fn system_size(&self) -> usize {
@@ -353,7 +349,7 @@ impl<'a> Partition<'a> {
     fn serialize(&self, v: &mut Vec<u8>) {
         let start_size = v.len();
         self.header.serialize(v);
-        for var in self.variables() {
+        for var in &self.values {
             var.serialize(v);
         }
         let my_size = v.len() - start_size;
@@ -366,7 +362,7 @@ impl<'a> Partition<'a> {
     }
 
     fn variables(&self) -> impl Iterator<Item = &Variable<'a>> {
-        self.values.iter().map(|e| &e.1)
+        self.values.iter().filter(|v| v.header.state == VAR_ADDED)
     }
 
     fn clone_active(&self) -> Partition<'a> {
@@ -378,7 +374,7 @@ impl<'a> Partition<'a> {
                 .values
                 .iter()
                 .filter_map(|v| {
-                    if v.1.header.state == VAR_ADDED {
+                    if v.header.state == VAR_ADDED {
                         Some(v.clone())
                     } else {
                         None
@@ -393,8 +389,8 @@ impl<'a> Partition<'a> {
 impl<'a> crate::Partition<'a> for Partition<'a> {
     fn get_variable(&self, key: &[u8], typ: VarType) -> Option<&dyn crate::Variable<'a>> {
         self.values.iter().find_map(|e| {
-            if e.0 == key && e.1.typ() == typ && e.1.header.state == VAR_ADDED {
-                Some(&e.1 as &dyn crate::Variable<'a>)
+            if e.key == key && e.typ() == typ && e.header.state == VAR_ADDED {
+                Some(e as &dyn crate::Variable<'a>)
             } else {
                 None
             }
@@ -423,7 +419,7 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
             key,
             value,
         };
-        self.values.push((key, var));
+        self.values.push(var);
     }
 
     fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
@@ -559,13 +555,7 @@ impl Display for Variable<'_> {
             }
         }
 
-        write!(
-            f,
-            "{}:{}={}",
-            self.typ(),
-            key,
-            value
-        )
+        write!(f, "{}:{}={}", self.typ(), key, value)
     }
 }
 
