@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "apple-nvram"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "adler32",
  "crc32fast",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "asahi-nvram"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "apple-nvram",
  "clap",
