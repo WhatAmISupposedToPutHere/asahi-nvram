@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
     io::{self, Read, Seek, SeekFrom},
+    ops::Deref,
 };
 use uuid::Uuid;
 
@@ -277,6 +278,39 @@ pub fn get_boot_candidates() -> Result<Vec<BootCandidate>> {
     }
 
     return Ok(cands);
+}
+
+pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/mtd0")
+        .unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).unwrap();
+    let mut nv = nvram_parse(&data).unwrap();
+
+    let active = nv.active_part_mut();
+    let v;
+    if next {
+        v = active
+            .get_variable(b"alt-boot-volume", VarType::System)
+            .or(active.get_variable(b"boot-volume", VarType::System))
+            .ok_or(Error::Parse);
+    } else {
+        v = active
+            .get_variable(b"boot-volume", VarType::System)
+            .ok_or(Error::Parse);
+    }
+    let data = String::from_utf8(v?.value().deref().to_vec()).unwrap();
+    let [_, part_uuid, part_vg_uuid]: [&str; 3] =
+        data.split(":").collect::<Vec<&str>>().try_into().unwrap();
+
+    Ok(BootCandidate {
+        vol_names: Vec::new(),
+        part_uuid: Uuid::parse_str(part_uuid).unwrap(),
+        vg_uuid: Uuid::parse_str(part_vg_uuid).unwrap(),
+    })
 }
 
 pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
