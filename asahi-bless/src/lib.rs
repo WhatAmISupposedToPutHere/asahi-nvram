@@ -242,6 +242,7 @@ pub enum Error {
     SectionTooBig,
     ApplyError(std::io::Error),
     OutOfRange,
+    Ambiguous,
 }
 
 impl From<apple_nvram::Error> for Error {
