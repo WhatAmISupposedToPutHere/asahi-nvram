@@ -40,11 +40,21 @@ struct Args {
     autoconfirm: bool,
 }
 
+fn error_to_string(e: Error) -> &'static str {
+    match e {
+        Error::Ambiguous => "Ambiguous boot volume",
+        Error::OutOfRange => "Index out of range",
+        Error::Parse => "Unable to parse current nvram contents",
+        Error::SectionTooBig => "Ran out of space on nvram",
+        Error::ApplyError(_) => "Failed to save new nvram contents"
+    }
+}
+
 fn main() -> ExitCode {
     match real_main() {
         Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{:?}", e);
+            eprintln!("Error: {}", error_to_string(e));
             ExitCode::FAILURE
         }
     }
@@ -57,7 +67,7 @@ fn real_main() -> Result<()> {
         list_boot_volumes(&args)?;
     } else if let Some(idx) = args.set_boot {
         let cands = get_boot_candidates()?;
-        set_boot_volume_by_index(&cands, idx - 1, &args)?;
+        set_boot_volume_by_index(&cands, idx - 1, &args, false)?;
     } else if args.set_boot_macos {
         let cands = get_boot_candidates()?;
         let macos_cands: Vec<_> = cands
@@ -70,9 +80,8 @@ fn real_main() -> Result<()> {
             })
             .collect();
         if macos_cands.len() == 1 {
-            set_boot_volume_by_ref(&macos_cands[0], &args)?;
+            set_boot_volume_by_ref(&macos_cands[0], &args, false)?;
         } else {
-            eprintln!("ambiguous boot volume");
             return Err(Error::Ambiguous);
         }
     } else {
@@ -105,21 +114,23 @@ fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
     Ok(cands)
 }
 
-fn set_boot_volume_by_index(cands: &[BootCandidate], idx: isize, args: &Args) -> Result<()> {
+fn set_boot_volume_by_index(cands: &[BootCandidate], idx: isize, args: &Args, interactive: bool) -> Result<()> {
     if idx < 0 || idx as usize >= cands.len() {
-        eprintln!("index out of range");
         return Err(Error::OutOfRange);
     }
-    set_boot_volume_by_ref(&cands[idx as usize], args)
+    set_boot_volume_by_ref(&cands[idx as usize], args, interactive)
 }
 
-fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args) -> Result<()> {
-    println!("picked {}", cand.vol_names.join(", "));
-    if !args.autoconfirm && !confirm() {
-        return Ok(());
+fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) -> Result<()> {
+    if !interactive {
+        println!("Will set volumes {} as boot target", cand.vol_names.join(", "));
+    }
+    if !args.autoconfirm && !interactive {
+        if !confirm() {
+            return Ok(());
+        }
     }
     set_boot_volume(cand, args.next)?;
-    println!("boot volume set");
     Ok(())
 }
 
@@ -130,6 +141,6 @@ fn interactive_main(args: &Args) -> Result<()> {
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
     let ix = input.trim().parse::<isize>().unwrap() - 1;
-    set_boot_volume_by_index(&cands, ix, args)?;
+    set_boot_volume_by_index(&cands, ix, args, true)?;
     Ok(())
 }
