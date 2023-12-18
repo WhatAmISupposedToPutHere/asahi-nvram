@@ -7,6 +7,7 @@ members = [
     "asahi-bless",
     "asahi-wifisync"
 ]
+resolver = "2"
 
 
 [profile.release]

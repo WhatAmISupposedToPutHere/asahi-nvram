@@ -10,6 +10,7 @@ use std::{
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Parser)]
+#[command(version)]
 struct Args {
     #[arg(
         short,
