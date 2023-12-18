@@ -243,6 +243,8 @@ pub enum Error {
     ApplyError(std::io::Error),
     OutOfRange,
     Ambiguous,
+    NvramReadError(std::io::Error),
+    DiskReadError(std::io::Error),
 }
 
 impl From<apple_nvram::Error> for Error {
@@ -262,13 +264,13 @@ pub fn get_boot_candidates() -> Result<Vec<BootCandidate>> {
         .writable(false)
         .logical_block_size(LogicalBlockSize::Lb4096)
         .open("/dev/nvme0n1")
-        .unwrap();
+        .map_err(Error::DiskReadError)?;
     let mut cands = Vec::new();
     for (i, v) in disk.partitions() {
         if v.part_type_guid.guid != "7C3457EF-0000-11AA-AA11-00306543ECAC" {
             continue;
         }
-        let mut part = File::open(format!("/dev/nvme0n1p{i}")).unwrap();
+        let mut part = File::open(format!("/dev/nvme0n1p{i}")).map_err(Error::DiskReadError)?;
         for (vg_uuid, vol_names) in scan_volume(&mut part).unwrap_or_default() {
             cands.push(BootCandidate {
                 vg_uuid,
@@ -286,10 +288,10 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
         .read(true)
         .write(true)
         .open("/dev/mtd0")
-        .unwrap();
+        .map_err(Error::NvramReadError)?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
-    let mut nv = nvram_parse(&data).unwrap();
+    file.read_to_end(&mut data).map_err(Error::NvramReadError)?;
+    let mut nv = nvram_parse(&data)?;
 
     let active = nv.active_part_mut();
     let v;
@@ -332,11 +334,10 @@ pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd0")
-        .unwrap();
+        .open("/dev/mtd0").map_err(Error::ApplyError)?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data).unwrap();
-    let mut nv = nvram_parse(&data).unwrap();
+    file.read_to_end(&mut data).map_err(Error::ApplyError)?;
+    let mut nv = nvram_parse(&data)?;
     nv.prepare_for_write();
     nv.active_part_mut().insert_variable(
         nvram_key,

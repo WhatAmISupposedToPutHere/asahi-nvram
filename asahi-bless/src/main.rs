@@ -40,13 +40,15 @@ struct Args {
     autoconfirm: bool,
 }
 
-fn error_to_string(e: Error) -> &'static str {
+fn error_to_string(e: Error) -> String {
     match e {
-        Error::Ambiguous => "Ambiguous boot volume",
-        Error::OutOfRange => "Index out of range",
-        Error::Parse => "Unable to parse current nvram contents",
-        Error::SectionTooBig => "Ran out of space on nvram",
-        Error::ApplyError(_) => "Failed to save new nvram contents"
+        Error::Ambiguous => "Ambiguous boot volume".to_string(),
+        Error::OutOfRange => "Index out of range".to_string(),
+        Error::Parse => "Unable to parse current nvram contents".to_string(),
+        Error::SectionTooBig => "Ran out of space on nvram".to_string(),
+        Error::ApplyError(e) => format!("Failed to save new nvram contents, try running with sudo? Inner error: {:?}", e),
+        Error::NvramReadError(e) => format!("Failed to read nvram contents, try running with sudo? Inner error: {:?}", e),
+        Error::DiskReadError(e) => format!("Failed to collect boot candidates, try running with sudo? Inner error: {:?}", e)
     }
 }
 
