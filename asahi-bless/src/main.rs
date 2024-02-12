@@ -7,6 +7,9 @@ use std::{
     process::ExitCode,
 };
 
+#[cfg(target_os = "macos")]
+compile_error!("asahi-bless will only work on linux, if you are on macos, use system `bless` instead");
+
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Parser)]
