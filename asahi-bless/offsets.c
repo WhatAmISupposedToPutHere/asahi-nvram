@@ -201,5 +201,5 @@ typedef struct apfs_superblock {
 } apfs_superblock_t;
 
 int main() {
-    printf("%ld\n", offsetof(apfs_superblock_t, apfs_volume_group_id));
+    printf("%ld\n", offsetof(apfs_superblock_t, apfs_role));
 }

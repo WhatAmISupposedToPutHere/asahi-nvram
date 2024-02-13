@@ -135,7 +135,12 @@ impl ApfsSuperblock<'_> {
     fn volume_group_id(&self) -> Uuid {
         Uuid::from_slice(&self.0[1008..1008 + 16]).unwrap()
     }
+    fn role(&self) -> u16 {
+        u16::from_le_bytes(self.0[964..964 + 2].try_into().unwrap())
+    }
 }
+
+const VOL_ROLE_SYSTEM: u16 = 1;
 
 fn pread<T: Read + Seek>(file: &mut T, pos: u64, target: &mut [u8]) -> io::Result<()> {
     file.seek(SeekFrom::Start(pos))?;
@@ -181,7 +186,7 @@ fn trim_zeroes(s: &[u8]) -> &[u8] {
     s
 }
 
-fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
+fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<Volume>>> {
     let mut sb = NxSuperblock::new();
     disk.read_exact(sb.get_buf())?;
     if sb.magic() != NxSuperblock::MAGIC {
@@ -203,7 +208,7 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
     let mut node_bytes = vec![0; sb.block_size() as usize];
     pread(disk, omap.tree_oid() * block_size, &mut node_bytes)?;
     let node = BTreeNodePhys(&node_bytes);
-    let mut vgs_found = HashMap::<Uuid, Vec<String>>::new();
+    let mut vgs_found = HashMap::<Uuid, Vec<Volume>>::new();
     for i in 0..NxSuperblock::MAX_FILE_SYSTEMS {
         let fs_id = sb.fs_oid(i);
         if fs_id == 0 {
@@ -223,17 +228,26 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
             vgs_found
                 .entry(asb.volume_group_id())
                 .or_default()
-                .push(name.to_owned());
+                .push(Volume {
+                    name: name.to_owned(),
+                    is_system: asb.role() == VOL_ROLE_SYSTEM
+                });
         }
     }
     Ok(vgs_found)
 }
 
 #[derive(Debug)]
+pub struct Volume {
+    pub name: String,
+    pub is_system: bool
+}
+
+#[derive(Debug)]
 pub struct BootCandidate {
     pub part_uuid: Uuid,
     pub vg_uuid: Uuid,
-    pub vol_names: Vec<String>,
+    pub volumes: Vec<Volume>,
 }
 
 fn swap_uuid(u: &Uuid) -> Uuid {
@@ -276,10 +290,10 @@ pub fn get_boot_candidates() -> Result<Vec<BootCandidate>> {
             continue;
         }
         let mut part = File::open(format!("/dev/nvme0n1p{i}")).map_err(Error::DiskReadError)?;
-        for (vg_uuid, vol_names) in scan_volume(&mut part).unwrap_or_default() {
+        for (vg_uuid, volumes) in scan_volume(&mut part).unwrap_or_default() {
             cands.push(BootCandidate {
                 vg_uuid,
-                vol_names,
+                volumes,
                 part_uuid: swap_uuid(&v.part_guid),
             });
         }
@@ -315,7 +329,7 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
         data.split(":").collect::<Vec<&str>>().try_into().unwrap();
 
     Ok(BootCandidate {
-        vol_names: Vec::new(),
+        volumes: Vec::new(),
         part_uuid: Uuid::parse_str(part_uuid).unwrap(),
         vg_uuid: Uuid::parse_str(part_vg_uuid).unwrap(),
     })

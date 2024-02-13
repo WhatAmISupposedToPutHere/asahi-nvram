@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCandidate, Error};
+use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCandidate, Error, Volume};
 use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
@@ -79,9 +79,9 @@ fn real_main() -> Result<()> {
         let macos_cands: Vec<_> = cands
             .iter()
             .filter(|c| {
-                c.vol_names
+                c.volumes
                     .first()
-                    .map(|n| n.starts_with("Macintosh"))
+                    .map(|n| n.name.starts_with("Macintosh"))
                     .unwrap_or(false)
             })
             .collect();
@@ -105,6 +105,15 @@ fn confirm() -> bool {
     input.trim().to_lowercase() == "y"
 }
 
+fn get_vg_name(vg: &[Volume]) -> &str {
+    for v in vg {
+        if v.is_system {
+            return &v.name;
+        }
+    }
+    &vg[0].name
+}
+
 fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
     let cands = get_boot_candidates()?;
     let default_cand = get_boot_volume(args.next)?;
@@ -115,7 +124,7 @@ fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
         } else {
             is_default = " ";
         }
-        println!("{}{}) {}", is_default, i + 1, cand.vol_names.join(", "));
+        println!("{}{}) {}", is_default, i + 1, get_vg_name(&cand.volumes));
     }
     Ok(cands)
 }
@@ -129,7 +138,7 @@ fn set_boot_volume_by_index(cands: &[BootCandidate], idx: isize, args: &Args, in
 
 fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) -> Result<()> {
     if !interactive {
-        println!("Will set volumes {} as boot target", cand.vol_names.join(", "));
+        println!("Will set volume {} as boot target", get_vg_name(&cand.volumes));
     }
     if !args.autoconfirm && !interactive {
         if !confirm() {
