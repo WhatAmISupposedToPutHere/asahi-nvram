@@ -11,12 +11,18 @@ use std::{
 };
 use uuid::Uuid;
 
-struct NxSuperblock<'a>(&'a [u8]);
+struct NxSuperblock([u8; NxSuperblock::SIZE]);
 
-impl NxSuperblock<'_> {
+impl NxSuperblock {
     const SIZE: usize = 1408;
     const MAGIC: u32 = 1112758350; //'BSXN'
     const MAX_FILE_SYSTEMS: usize = 100;
+    fn get_buf(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
+    fn new() -> Self {
+        NxSuperblock([0; NxSuperblock::SIZE])
+    }
     fn magic(&self) -> u32 {
         u32::from_le_bytes(self.0[32..32 + 4].try_into().unwrap())
     }
@@ -176,22 +182,21 @@ fn trim_zeroes(s: &[u8]) -> &[u8] {
 }
 
 fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<String>>> {
-    let mut superblock = vec![0; NxSuperblock::SIZE];
-    disk.read_exact(&mut superblock)?;
-    let sb = NxSuperblock(&superblock);
+    let mut sb = NxSuperblock::new();
+    disk.read_exact(sb.get_buf())?;
     if sb.magic() != NxSuperblock::MAGIC {
         return Ok(HashMap::new());
     }
     let block_size = sb.block_size() as u64;
-    /*
     for i in 0..sb.xp_desc_blocks() {
-        let mut sb_cand = vec![0; NxSuperblock::SIZE];
-        pread(&mut disk, (sb.xp_desc_base() + i as u64) * block_size, &mut sb_cand)?;
-        let sbc = NxSuperblock(&sb_cand);
+        let mut sbc = NxSuperblock::new();
+        pread(disk, (sb.xp_desc_base() + i as u64) * block_size, sbc.get_buf())?;
         if sbc.magic() == NxSuperblock::MAGIC {
-            dbg!(sbc.xid());
+            if sbc.xid() > sb.xid() {
+                sb = sbc;
+            }
         }
-    }*/
+    }
     let mut omap_bytes = vec![0; OmapPhys::SIZE];
     pread(disk, sb.omap_oid() * block_size, &mut omap_bytes)?;
     let omap = OmapPhys(&omap_bytes);
