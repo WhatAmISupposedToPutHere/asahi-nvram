@@ -4,7 +4,7 @@ use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCan
 use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
-    num::IntErrorKind::{Empty, InvalidDigit},
+    num::{IntErrorKind, NonZeroUsize},
     process::ExitCode,
 };
 
@@ -32,7 +32,7 @@ struct Args {
     list_volumes: bool,
 
     #[arg(long, value_name = "idx", help = "Set boot volume by index")]
-    set_boot: Option<isize>,
+    set_boot: Option<NonZeroUsize>,
 
     #[arg(
         long,
@@ -73,8 +73,11 @@ fn real_main() -> Result<()> {
     if args.list_volumes {
         list_boot_volumes(&args)?;
     } else if let Some(idx) = args.set_boot {
-        let cands = get_boot_candidates()?;
-        set_boot_volume_by_index(&cands, idx - 1, &args, false)?;
+        let cand = get_boot_candidates()?
+            .into_iter()
+            .nth(idx.get() - 1)
+            .ok_or(Error::OutOfRange)?;
+        set_boot_volume_by_ref(&cand, &args, false)?;
     } else if args.set_boot_macos {
         let cands = get_boot_candidates()?;
         let macos_cands: Vec<_> = cands
@@ -130,13 +133,6 @@ fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
     Ok(cands)
 }
 
-fn set_boot_volume_by_index(cands: &[BootCandidate], idx: isize, args: &Args, interactive: bool) -> Result<()> {
-    if idx < 0 || idx as usize >= cands.len() {
-        return Err(Error::OutOfRange);
-    }
-    set_boot_volume_by_ref(&cands[idx as usize], args, interactive)
-}
-
 fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) -> Result<()> {
     if !interactive {
         println!("Will set volume {} as boot target", get_vg_name(&cand.volumes));
@@ -161,13 +157,15 @@ fn interactive_main(args: &Args) -> Result<()> {
         input.clear();
         stdin().read_line(&mut input).unwrap();
 
-        match input.trim().parse::<isize>() {
-            Ok(i) => break i - 1,
-            Err(e) if e.kind() == &Empty => eprintln!("No volume selected"),
-            Err(e) if e.kind() == &InvalidDigit => eprintln!("Selection must be a whole number"),
-            overflow => _ = overflow.unwrap(),
+        match input.trim().parse::<usize>() {
+            Ok(i @ 1..) if i <= cands.len() => break i - 1,
+            Err(e) if e.kind() == &IntErrorKind::Empty => {
+                eprintln!("No volume selected. Leaving unchanged.");
+                return Ok(());
+            },
+            _ => eprintln!("Enter a number from 1 to {}", cands.len()),
         }
     };
 
-    set_boot_volume_by_index(&cands, index, args, true)
+    set_boot_volume_by_ref(&cands[index], args, true)
 }
