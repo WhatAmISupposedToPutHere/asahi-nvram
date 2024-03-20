@@ -5,7 +5,7 @@ use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
     num::IntErrorKind::{Empty, InvalidDigit},
-    process::{exit, ExitCode},
+    process::ExitCode,
 };
 
 #[cfg(target_os = "macos")]
@@ -152,21 +152,22 @@ fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) 
 
 fn interactive_main(args: &Args) -> Result<()> {
     let cands = list_boot_volumes(args)?;
-    print!("==> ");
-    stdout().flush().unwrap();
+
     let mut input = String::new();
-    stdin().read_line(&mut input).unwrap();
-    let ix = input.trim().parse::<isize>().unwrap_or_else(|error| {
-        if error.kind() == &Empty {
-            println!("No volume selected");
-            exit(ExitCode::FAILURE)
-        } else if error.kind() == &InvalidDigit {
-            println!("Selection must be a whole number");
-            exit(ExitCode::FAILURE)
-        } else {
-            panic!("Inner error: {}", error)
+    let index = loop {
+        print!("==> ");
+        stdout().flush().unwrap();
+
+        input.clear();
+        stdin().read_line(&mut input).unwrap();
+
+        match input.trim().parse::<isize>() {
+            Ok(i) => break i - 1,
+            Err(e) if e.kind() == &Empty => eprintln!("No volume selected"),
+            Err(e) if e.kind() == &InvalidDigit => eprintln!("Selection must be a whole number"),
+            overflow => _ = overflow.unwrap(),
         }
-    }) - 1;
-    set_boot_volume_by_index(&cands, ix, args, true)?;
-    Ok(())
+    };
+
+    set_boot_volume_by_index(&cands, index, args, true)
 }
