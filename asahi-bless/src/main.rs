@@ -148,6 +148,7 @@ fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) 
 
 fn interactive_main(args: &Args) -> Result<()> {
     let cands = list_boot_volumes(args)?;
+    println!("\nEnter a number to select a boot volume:");
 
     let mut input = String::new();
     let index = loop {
