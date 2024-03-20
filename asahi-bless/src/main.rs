@@ -4,7 +4,8 @@ use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCan
 use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
-    process::ExitCode,
+    num::IntErrorKind::{Empty, InvalidDigit},
+    process::{exit, ExitCode},
 };
 
 #[cfg(target_os = "macos")]
@@ -155,7 +156,17 @@ fn interactive_main(args: &Args) -> Result<()> {
     stdout().flush().unwrap();
     let mut input = String::new();
     stdin().read_line(&mut input).unwrap();
-    let ix = input.trim().parse::<isize>().unwrap() - 1;
+    let ix = input.trim().parse::<isize>().unwrap_or_else(|error| {
+        if error.kind() == &Empty {
+            println!("No volume selected");
+            exit(ExitCode::FAILURE)
+        } else if error.kind() == &InvalidDigit {
+            println!("Selection must be a whole number");
+            exit(ExitCode::FAILURE)
+        } else {
+            panic!("Inner error: {}", error)
+        }
+    }) - 1;
     set_boot_volume_by_index(&cands, ix, args, true)?;
     Ok(())
 }
