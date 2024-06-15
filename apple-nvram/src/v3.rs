@@ -268,7 +268,7 @@ impl<'a> Partition<'a> {
                 }
                 let v = Variable {
                     header: v_header,
-                    key,
+                    key: Cow::Borrowed(key),
                     value: Cow::Borrowed(value),
                 };
 
@@ -296,17 +296,29 @@ impl<'a> Partition<'a> {
         self.header.generation
     }
 
-    fn entries(&mut self, key: &'a [u8], typ: VarType) -> impl Iterator<Item = &mut Variable<'a>> {
+    fn entries<'b, 'c>(
+        &'b mut self,
+        key: &'c [u8],
+        typ: VarType,
+    ) -> impl Iterator<Item = &mut Variable<'a>>
+    where
+        'a: 'b,
+        'c: 'b,
+    {
         self.values
             .iter_mut()
             .filter(move |e| e.key == key && e.typ() == typ)
     }
 
-    fn entries_added(
-        &mut self,
-        key: &'a [u8],
+    fn entries_added<'b, 'c>(
+        &'b mut self,
+        key: &'c [u8],
         typ: VarType,
-    ) -> impl Iterator<Item = &mut Variable<'a>> {
+    ) -> impl Iterator<Item = &mut Variable<'a>>
+    where
+        'a: 'b,
+        'c: 'b,
+    {
         self.entries(key, typ)
             .filter(|v| v.header.state == VAR_ADDED)
     }
@@ -398,7 +410,7 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
         })
     }
 
-    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
+    fn insert_variable(&mut self, key: &[u8], value: Cow<'a, [u8]>, typ: VarType) {
         // invalidate any previous variable instances
         for var in self.entries_added(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
@@ -417,13 +429,13 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
                 guid,
                 crc: crc32fast::hash(&value),
             },
-            key,
+            key: Cow::Owned(key.into()),
             value,
         };
         self.values.push(var);
     }
 
-    fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
+    fn remove_variable(&mut self, key: &[u8], typ: VarType) {
         // invalidate all previous variable instances
         for var in self.entries_added(key, typ) {
             var.header.state = var.header.state & VAR_DELETED & VAR_IN_DELETED_TRANSITION;
@@ -514,7 +526,7 @@ impl<'a> StoreHeader<'a> {
 #[derive(Debug, Default, Clone)]
 pub struct Variable<'a> {
     pub header: VarHeader<'a>,
-    pub key: &'a [u8],
+    pub key: Cow<'a, [u8]>,
     pub value: Cow<'a, [u8]>,
 }
 
@@ -532,7 +544,7 @@ impl<'a> Variable<'a> {
 
     fn serialize(&self, v: &mut Vec<u8>) {
         self.header.serialize(v);
-        v.extend_from_slice(self.key);
+        v.extend_from_slice(&self.key);
         v.push(0);
         v.extend_from_slice(&self.value);
     }
@@ -546,7 +558,7 @@ impl<'a> crate::Variable<'a> for Variable<'a> {
 
 impl Display for Variable<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        let key = String::from_utf8_lossy(self.key);
+        let key = String::from_utf8_lossy(&self.key);
         let mut value = String::new();
         for c in self.value.iter().copied() {
             if (c as char).is_ascii() && !(c as char).is_ascii_control() {
