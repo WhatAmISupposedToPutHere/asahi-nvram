@@ -87,7 +87,7 @@ pub trait Nvram<'a> {
 
 pub trait Partition<'a>: Display {
     fn variables(&self) -> Box<dyn Iterator<Item = &dyn Variable<'a>> + '_>;
-    fn get_variable(&self, key: &'a [u8], typ: VarType) -> Option<&dyn Variable<'a>>;
+    fn get_variable(&self, key: &[u8], typ: VarType) -> Option<&dyn Variable<'a>>;
     fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType);
     fn remove_variable(&mut self, key: &'a [u8], typ: VarType);
 }
