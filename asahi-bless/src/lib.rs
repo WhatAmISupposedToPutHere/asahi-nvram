@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
+use apple_nvram::{nvram_parse, VarType};
 use gpt::{disk::LogicalBlockSize, GptConfig};
 use std::{
     borrow::Cow,
@@ -195,7 +195,11 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<Volume>>> {
     let block_size = sb.block_size() as u64;
     for i in 0..sb.xp_desc_blocks() {
         let mut sbc = NxSuperblock::new();
-        pread(disk, (sb.xp_desc_base() + i as u64) * block_size, sbc.get_buf())?;
+        pread(
+            disk,
+            (sb.xp_desc_base() + i as u64) * block_size,
+            sbc.get_buf(),
+        )?;
         if sbc.magic() == NxSuperblock::MAGIC {
             if sbc.xid() > sb.xid() {
                 sb = sbc;
@@ -230,7 +234,7 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<Volume>>> {
                 .or_default()
                 .push(Volume {
                     name: name.to_owned(),
-                    is_system: asb.role() == VOL_ROLE_SYSTEM
+                    is_system: asb.role() == VOL_ROLE_SYSTEM,
                 });
         }
     }
@@ -240,7 +244,7 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<Volume>>> {
 #[derive(Debug)]
 pub struct Volume {
     pub name: String,
-    pub is_system: bool
+    pub is_system: bool,
 }
 
 #[derive(Debug)]
@@ -353,7 +357,8 @@ pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd0").map_err(Error::ApplyError)?;
+        .open("/dev/mtd0")
+        .map_err(Error::ApplyError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::ApplyError)?;
     let mut nv = nvram_parse(&data)?;
@@ -363,6 +368,6 @@ pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
         Cow::Owned(boot_str.into_bytes()),
         VarType::System,
     );
-    nv.apply(&mut MtdWriter::new(file))?;
+    nv.apply(&mut file)?;
     Ok(())
 }

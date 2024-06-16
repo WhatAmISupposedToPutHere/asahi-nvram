@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 use std::{borrow::Cow, fs::OpenOptions, io::Read, process::ExitCode};
 
-use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
+use apple_nvram::{nvram_parse, VarType};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -96,7 +96,7 @@ fn real_main() -> Result<()> {
                 let typ = part_by_name(part)?;
                 active.insert_variable(name.as_bytes(), Cow::Owned(read_var(value)?), typ);
             }
-            nv.apply(&mut MtdWriter::new(file))?;
+            nv.apply(&mut file)?;
         }
         Some(("delete", args)) => {
             let vars = args.get_many::<String>("variable");
@@ -107,7 +107,7 @@ fn real_main() -> Result<()> {
                 let typ = part_by_name(part)?;
                 active.remove_variable(name.as_bytes(), typ);
             }
-            nv.apply(&mut MtdWriter::new(file))?;
+            nv.apply(&mut file)?;
         }
         _ => {}
     }
