@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 #![allow(dead_code)]
-use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCandidate, Error, Volume};
+use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, clear_next_boot,  BootCandidate, Error, Volume};
 use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
@@ -46,6 +46,9 @@ struct Args {
 
     #[arg(long, help = "Get currently selected boot target. May be combined with --next to show the next boot target.")]
     get_boot: bool,
+
+    #[arg(long, help = "Clear the selected next boot target")]
+    clear_next: bool,
 }
 
 fn error_to_string(e: Error) -> String {
@@ -78,6 +81,12 @@ fn real_main() -> Result<()> {
         list_boot_volumes(&args)?;
     } else if args.get_boot {
         print_boot_target(&args)?;
+    } else if args.clear_next {
+        if clear_next_boot()? {
+            println!("Cleared next boot target");
+        } else {
+            println!("Next boot target was already empty");
+        }
     } else if let Some(spec) = &args.set_boot {
         let cands = get_boot_candidates()?;
         let lc_name = spec.to_lowercase();

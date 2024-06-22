@@ -307,6 +307,8 @@ pub fn get_boot_candidates() -> Result<Vec<BootCandidate>> {
     return Ok(cands);
 }
 
+const ALT_BOOT_VAR: &'static [u8] = b"alt-boot-volume";
+
 pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
     let mut file = OpenOptions::new()
         .read(true)
@@ -321,7 +323,7 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
     let v;
     if next {
         v = active
-            .get_variable(b"alt-boot-volume", VarType::System)
+            .get_variable(ALT_BOOT_VAR, VarType::System)
             .or(active.get_variable(b"boot-volume", VarType::System))
             .ok_or(Error::Parse);
     } else {
@@ -340,10 +342,31 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
     })
 }
 
+pub fn clear_next_boot() -> Result<bool> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/mtd0")
+        .map_err(Error::ApplyError)?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).map_err(Error::ApplyError)?;
+    let mut nv = nvram_parse(&data)?;
+    nv.prepare_for_write();
+    if nv.active_part_mut().get_variable(ALT_BOOT_VAR, VarType::System).is_none() {
+        return Ok(false);
+    }
+    nv.active_part_mut().remove_variable(
+        ALT_BOOT_VAR,
+        VarType::System,
+    );
+    nv.apply(&mut file)?;
+    Ok(true)
+}
+
 pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
     let mut nvram_key: &[u8] = b"boot-volume".as_ref();
     if next {
-        nvram_key = b"alt-boot-volume".as_ref();
+        nvram_key = ALT_BOOT_VAR.as_ref();
     }
 
     let boot_str = format!(
