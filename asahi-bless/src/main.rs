@@ -135,7 +135,12 @@ fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
 
 fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) -> Result<()> {
     if !interactive {
-        println!("Will set volume {} as boot target", get_vg_name(&cand.volumes));
+        let as_what = if !args.next {
+            "default boot target"
+        } else {
+            "boot target for next boot only"
+        };
+        println!("Will set volume {} as the {}", get_vg_name(&cand.volumes), as_what);
     }
     if !args.autoconfirm && !interactive {
         if !confirm() {
