@@ -43,6 +43,9 @@ struct Args {
 
     #[arg(name = "yes", short, long, help = "Do not ask for confirmation")]
     autoconfirm: bool,
+
+    #[arg(long, help = "Get currently selected boot target. May be combined with --next to show the next boot target.")]
+    get_boot: bool,
 }
 
 fn error_to_string(e: Error) -> String {
@@ -73,6 +76,8 @@ fn real_main() -> Result<()> {
 
     if args.list_volumes {
         list_boot_volumes(&args)?;
+    } else if args.get_boot {
+        print_boot_target(&args)?;
     } else if let Some(spec) = &args.set_boot {
         let cands = get_boot_candidates()?;
         let lc_name = spec.to_lowercase();
@@ -129,6 +134,19 @@ fn get_vg_name(vg: &[Volume]) -> &str {
         }
     }
     &vg[0].name
+}
+
+fn print_boot_target(args: &Args) -> Result<()> {
+    let cands = get_boot_candidates()?;
+    let default_cand = get_boot_volume(args.next)?;
+    for cand in cands {
+        if (cand.part_uuid == default_cand.part_uuid) && (cand.vg_uuid == default_cand.vg_uuid) {
+            println!("{}", get_vg_name(&cand.volumes));
+            return Ok(());
+        }
+    }
+    println!("No boot target set");
+    Ok(())
 }
 
 fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
