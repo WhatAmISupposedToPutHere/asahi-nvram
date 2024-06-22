@@ -4,7 +4,7 @@ use asahi_bless::{get_boot_candidates, get_boot_volume, set_boot_volume, BootCan
 use clap::Parser;
 use std::{
     io::{stdin, stdout, Write},
-    num::{IntErrorKind, NonZeroUsize},
+    num::IntErrorKind,
     process::ExitCode,
 };
 
@@ -31,8 +31,8 @@ struct Args {
     )]
     list_volumes: bool,
 
-    #[arg(long, value_name = "idx", help = "Set boot volume by index")]
-    set_boot: Option<NonZeroUsize>,
+    #[arg(long, value_name = "name_or_index", help = "Set boot volume by name or index")]
+    set_boot: Option<String>,
 
     #[arg(
         long,
@@ -53,7 +53,8 @@ fn error_to_string(e: Error) -> String {
         Error::SectionTooBig => "Ran out of space on nvram".to_string(),
         Error::ApplyError(e) => format!("Failed to save new nvram contents, try running with sudo? Inner error: {:?}", e),
         Error::NvramReadError(e) => format!("Failed to read nvram contents, try running with sudo? Inner error: {:?}", e),
-        Error::DiskReadError(e) => format!("Failed to collect boot candidates, try running with sudo? Inner error: {:?}", e)
+        Error::DiskReadError(e) => format!("Failed to collect boot candidates, try running with sudo? Inner error: {:?}", e),
+        Error::VolumeNotFound => "Unable to find specified volume".to_string(),
     }
 }
 
@@ -72,12 +73,24 @@ fn real_main() -> Result<()> {
 
     if args.list_volumes {
         list_boot_volumes(&args)?;
-    } else if let Some(idx) = args.set_boot {
-        let cand = get_boot_candidates()?
-            .into_iter()
-            .nth(idx.get() - 1)
-            .ok_or(Error::OutOfRange)?;
-        set_boot_volume_by_ref(&cand, &args, false)?;
+    } else if let Some(spec) = &args.set_boot {
+        let cands = get_boot_candidates()?;
+        let lc_name = spec.to_lowercase();
+        for cand in &cands {
+            if cand.volumes.iter().any(|n| n.name.to_lowercase() == lc_name) {
+                set_boot_volume_by_ref(&cand, &args, false)?;
+                return Ok(());
+            }
+        }
+        if let Ok(idx) = spec.parse::<usize>() {
+            let cand = cands
+                .into_iter()
+                .nth(idx - 1)
+                .ok_or(Error::OutOfRange)?;
+            set_boot_volume_by_ref(&cand, &args, false)?;
+        } else {
+            return Err(Error::VolumeNotFound);
+        }
     } else if args.set_boot_macos {
         let cands = get_boot_candidates()?;
         let macos_cands: Vec<_> = cands

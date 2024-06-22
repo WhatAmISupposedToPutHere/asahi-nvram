@@ -268,6 +268,7 @@ pub enum Error {
     Ambiguous,
     NvramReadError(std::io::Error),
     DiskReadError(std::io::Error),
+    VolumeNotFound,
 }
 
 impl From<apple_nvram::Error> for Error {
