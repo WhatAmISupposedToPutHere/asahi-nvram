@@ -53,7 +53,7 @@ struct Args {
 
 fn error_to_string(e: Error) -> String {
     match e {
-        Error::Ambiguous => "Ambiguous boot volume".to_string(),
+        Error::Ambiguous => "Unable to find the macos volume. Make sure you have exactly one volume that has a name staring with \"Macintosh\"".to_string(),
         Error::OutOfRange => "Index out of range".to_string(),
         Error::Parse => "Unable to parse current nvram contents".to_string(),
         Error::SectionTooBig => "Ran out of space on nvram".to_string(),
