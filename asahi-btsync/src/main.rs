@@ -14,6 +14,7 @@ use apple_nvram::{nvram_parse, VarType, Variable};
 use ini::Ini;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Error {
     Parse,
     SectionTooBig,

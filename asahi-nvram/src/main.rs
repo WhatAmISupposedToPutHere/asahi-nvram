@@ -4,6 +4,7 @@ use std::{borrow::Cow, fs::OpenOptions, io::Read, process::ExitCode};
 use apple_nvram::{mtd::MtdWriter, nvram_parse, VarType};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Error {
     Parse,
     SectionTooBig,
