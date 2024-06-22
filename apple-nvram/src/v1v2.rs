@@ -105,19 +105,9 @@ impl CHRPHeader<'_> {
 
 #[derive(Clone)]
 pub struct Variable<'a> {
-    pub key: &'a [u8],
+    pub key: Cow<'a, [u8]>,
     pub value: Cow<'a, [u8]>,
     pub typ: VarType,
-}
-
-impl<'a> Variable<'a> {
-    pub fn new(key: &'a [u8], value: &'a [u8], typ: VarType) -> Variable<'a> {
-        Variable {
-            key,
-            value: Cow::Borrowed(value),
-            typ,
-        }
-    }
 }
 
 impl<'a> crate::Variable<'a> for Variable<'a> {
@@ -128,7 +118,7 @@ impl<'a> crate::Variable<'a> for Variable<'a> {
 
 impl Display for Variable<'_> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        let key = String::from_utf8_lossy(self.key);
+        let key = String::from_utf8_lossy(&self.key);
         let mut value = String::new();
         for c in UnescapeVal::new(self.value.iter().copied()) {
             if (c as char).is_ascii() && !(c as char).is_ascii_control() {
@@ -146,7 +136,7 @@ impl Display for Variable<'_> {
 #[derive(Clone)]
 pub struct Section<'a> {
     pub header: CHRPHeader<'a>,
-    pub values: HashMap<&'a [u8], Variable<'a>>,
+    pub values: HashMap<Cow<'a, [u8]>, Variable<'a>>,
 }
 
 impl Section<'_> {
@@ -172,7 +162,14 @@ impl Section<'_> {
             } else {
                 VarType::System
             };
-            values.insert(key, Variable::new(key, &cand[(eq + 1)..], typ));
+            values.insert(
+                Cow::Borrowed(key),
+                Variable {
+                    key: Cow::Borrowed(key),
+                    value: Cow::Borrowed(&cand[(eq + 1)..]),
+                    typ,
+                },
+            );
             nvr = &nvr[(zero + 1)..]
         }
         Ok(Section { header, values })
@@ -184,7 +181,7 @@ impl Section<'_> {
         let start_size = v.len();
         self.header.serialize(v);
         for val in self.values.values() {
-            v.extend_from_slice(val.key);
+            v.extend_from_slice(&val.key);
             v.push(b'=');
             v.extend_from_slice(&val.value);
             v.push(0);
@@ -206,7 +203,7 @@ impl Debug for SectionDebug<'_, '_> {
         let mut m = f.debug_map();
         for v in self.0.values.values() {
             m.entry(
-                &String::from_utf8_lossy(v.key).into_owned(),
+                &String::from_utf8_lossy(&v.key).into_owned(),
                 &String::from_utf8_lossy(
                     &UnescapeVal::new(v.value.iter().copied()).collect::<Vec<_>>(),
                 )
@@ -312,16 +309,23 @@ impl<'a> crate::Partition<'a> for Partition<'a> {
         }
     }
 
-    fn insert_variable(&mut self, key: &'a [u8], value: Cow<'a, [u8]>, typ: VarType) {
+    fn insert_variable(&mut self, key: &[u8], value: Cow<'a, [u8]>, typ: VarType) {
         match typ {
             VarType::Common => &mut self.common,
             VarType::System => &mut self.system,
         }
         .values
-        .insert(key, Variable { key, value, typ });
+        .insert(
+            Cow::Owned(key.into()),
+            Variable {
+                key: Cow::Owned(key.into()),
+                value,
+                typ,
+            },
+        );
     }
 
-    fn remove_variable(&mut self, key: &'a [u8], typ: VarType) {
+    fn remove_variable(&mut self, key: &[u8], typ: VarType) {
         match typ {
             VarType::Common => &mut self.common,
             VarType::System => &mut self.system,
