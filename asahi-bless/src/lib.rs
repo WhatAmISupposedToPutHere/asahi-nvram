@@ -313,7 +313,7 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd0")
+        .open("/dev/mtd/by-name/nvram")
         .map_err(Error::NvramReadError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::NvramReadError)?;
@@ -346,7 +346,7 @@ pub fn clear_next_boot() -> Result<bool> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd0")
+        .open("/dev/mtd/by-name/nvram")
         .map_err(Error::ApplyError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::ApplyError)?;
@@ -381,7 +381,7 @@ pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd0")
+        .open("/dev/mtd/by-name/nvram")
         .map_err(Error::ApplyError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::ApplyError)?;
