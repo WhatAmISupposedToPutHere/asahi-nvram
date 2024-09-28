@@ -57,7 +57,7 @@ fn real_main() -> Result<()> {
                 .arg(clap::Arg::new("variable=value").multiple_values(true)),
         )
         .get_matches();
-    let default_name = "/dev/mtd0".to_owned();
+    let default_name = "/dev/mtd/by-name/nvram".to_owned();
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
