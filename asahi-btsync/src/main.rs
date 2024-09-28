@@ -68,7 +68,7 @@ fn real_main() -> Result<()> {
         )
         .get_matches();
 
-    let default_name = "/dev/mtd0ro".to_owned();
+    let default_name = "/dev/mtd/by-name/nvram".to_owned();
     let default_config = "/var/lib/bluetooth".to_owned();
     let bt_var = "BluetoothUHEDevices";
 
