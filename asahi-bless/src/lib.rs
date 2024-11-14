@@ -216,7 +216,7 @@ fn scan_volume(disk: &mut File) -> io::Result<HashMap<Uuid, Vec<Volume>>> {
     for i in 0..NxSuperblock::MAX_FILE_SYSTEMS {
         let fs_id = sb.fs_oid(i);
         if fs_id == 0 {
-            break;
+            continue;
         }
         let vsb = lookup(disk, &node, fs_id);
         let mut asb_bytes = vec![0; sb.block_size() as usize];
