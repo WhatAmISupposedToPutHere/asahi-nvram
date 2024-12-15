@@ -1,0 +1,10 @@
+[Unit]
+Description=Apple silicon Bluetooth device sync
+After=bluetooth.service
+Requisite=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sleep 2s
+ExecStart=/usr/bin/asahi-btsync sync
+

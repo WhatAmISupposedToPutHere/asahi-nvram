@@ -7,11 +7,15 @@ use std::{
     fs::OpenOptions,
     io::{self, stdout, Read, Write},
     path::Path,
+    thread,
+    time::Duration,
 };
 
 use apple_nvram::{nvram_parse, VarType, Variable};
 
 use ini::Ini;
+
+pub mod dbus;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -23,6 +27,8 @@ enum Error {
     FileIO,
     BluezConfigDirNotFound,
     SliceError,
+    DbusSystemd,
+    DbusBluez,
 }
 
 impl From<apple_nvram::Error> for Error {
@@ -110,7 +116,7 @@ fn dump(var: &dyn Variable) -> Result<()> {
     Ok(())
 }
 
-struct BtDevice {
+pub struct BtDevice {
     mac: [u8; 6],
     class: u16,
     name: String,
@@ -119,7 +125,7 @@ struct BtDevice {
     pairing_key: [u8; 16],
 }
 
-struct BtInfo {
+pub struct BtInfo {
     mac: [u8; 6],
     devices: Vec<BtDevice>,
 }
@@ -231,8 +237,9 @@ fn sync_btkeys(var: &dyn Variable, config: &String) -> Result<()> {
     if !adapter_path.is_dir() {
         fs::create_dir(adapter_path.clone())?;
     }
+    let mut added_devs = 0;
 
-    for dev in info.devices {
+    for dev in &info.devices {
         let dev_path = adapter_path.join(format_mac(&dev.mac)?);
 
         if !dev_path.is_dir() {
@@ -248,7 +255,7 @@ fn sync_btkeys(var: &dyn Variable, config: &String) -> Result<()> {
         let mut info = Ini::new();
 
         info.with_section(Some("General"))
-            .set("Name", dev.name)
+            .set("Name", dev.name.clone())
             .set("Class", format!("{:#08X}", dev.class))
             .set("Trusted", "true")
             .set("Blocked", "false")
@@ -261,6 +268,19 @@ fn sync_btkeys(var: &dyn Variable, config: &String) -> Result<()> {
         info.write_to_file(info_file)?;
 
         println!("{}", format_mac(&dev.mac)?);
+        added_devs += 1;
+    }
+    if added_devs > 0 {
+        if let Err(e) = dbus::systemd_reload_bt_config() {
+            println!("Failed to reload bluetoothd config {}", e);
+            return Err(Error::DbusSystemd);
+        }
+        // sleep 500 ms to let bluetoothd reload its config
+        thread::sleep(Duration::from_millis(500));
+        if let Err(e) = dbus::bluez_connect(&info) {
+            println!("Failed to connect bluetooth devices {}", e);
+            return Err(Error::DbusBluez);
+        }
     }
     Ok(())
 }

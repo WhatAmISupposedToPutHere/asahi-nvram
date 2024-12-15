@@ -1,0 +1,1 @@
+SUBSYSTEM=="mtd", ATTR{name}=="nvram", DRIVERS=="apple-spi", TAG+="systemd", ENV{SYSTEMD_WANTS}="asahi-btsync.service"
