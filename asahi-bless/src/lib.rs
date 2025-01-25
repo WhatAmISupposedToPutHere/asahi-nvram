@@ -309,11 +309,11 @@ pub fn get_boot_candidates() -> Result<Vec<BootCandidate>> {
 
 const ALT_BOOT_VAR: &'static [u8] = b"alt-boot-volume";
 
-pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
+pub fn get_boot_volume(device: &str, next: bool) -> Result<BootCandidate> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd/by-name/nvram")
+        .open(device)
         .map_err(Error::NvramReadError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::NvramReadError)?;
@@ -342,11 +342,11 @@ pub fn get_boot_volume(next: bool) -> Result<BootCandidate> {
     })
 }
 
-pub fn clear_next_boot() -> Result<bool> {
+pub fn clear_next_boot(device: &str) -> Result<bool> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd/by-name/nvram")
+        .open(device)
         .map_err(Error::ApplyError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::ApplyError)?;
@@ -363,7 +363,7 @@ pub fn clear_next_boot() -> Result<bool> {
     Ok(true)
 }
 
-pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
+pub fn set_boot_volume(device: &str, cand: &BootCandidate, next: bool) -> Result<()> {
     let mut nvram_key: &[u8] = b"boot-volume".as_ref();
     if next {
         nvram_key = ALT_BOOT_VAR.as_ref();
@@ -381,7 +381,7 @@ pub fn set_boot_volume(cand: &BootCandidate, next: bool) -> Result<()> {
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
-        .open("/dev/mtd/by-name/nvram")
+        .open(device)
         .map_err(Error::ApplyError)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(Error::ApplyError)?;

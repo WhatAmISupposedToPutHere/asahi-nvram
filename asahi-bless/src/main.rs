@@ -19,6 +19,13 @@ struct Args {
     #[arg(
         short,
         long,
+        help = "Path to the nvram device."
+    )]
+    device: Option<String>,
+
+    #[arg(
+        short,
+        long,
         help = "Set boot volume for next boot only"
     )]
     next: bool,
@@ -77,12 +84,17 @@ fn main() -> ExitCode {
 fn real_main() -> Result<()> {
     let args = Args::parse();
 
+    let device = match args.device {
+        Some(ref dev) => dev,
+        None => "/dev/mtd/by-name/nvram",
+    };
+
     if args.list_volumes {
-        list_boot_volumes(&args)?;
+        list_boot_volumes(&args, device)?;
     } else if args.get_boot {
-        print_boot_target(&args)?;
+        print_boot_target(&args, device)?;
     } else if args.clear_next {
-        if clear_next_boot()? {
+        if clear_next_boot(device)? {
             println!("Cleared next boot target");
         } else {
             println!("Next boot target was already empty");
@@ -92,7 +104,7 @@ fn real_main() -> Result<()> {
         let lc_name = spec.to_lowercase();
         for cand in &cands {
             if cand.volumes.iter().any(|n| n.name.to_lowercase() == lc_name) {
-                set_boot_volume_by_ref(&cand, &args, false)?;
+                set_boot_volume_by_ref(device, &cand, &args, false)?;
                 return Ok(());
             }
         }
@@ -101,7 +113,7 @@ fn real_main() -> Result<()> {
                 .into_iter()
                 .nth(idx - 1)
                 .ok_or(Error::OutOfRange)?;
-            set_boot_volume_by_ref(&cand, &args, false)?;
+            set_boot_volume_by_ref(device, &cand, &args, false)?;
         } else {
             return Err(Error::VolumeNotFound);
         }
@@ -117,12 +129,12 @@ fn real_main() -> Result<()> {
             })
             .collect();
         if macos_cands.len() == 1 {
-            set_boot_volume_by_ref(&macos_cands[0], &args, false)?;
+            set_boot_volume_by_ref(device, &macos_cands[0], &args, false)?;
         } else {
             return Err(Error::Ambiguous);
         }
     } else {
-        interactive_main(&args)?;
+        interactive_main(&args, device)?;
     }
 
     Ok(())
@@ -145,9 +157,9 @@ fn get_vg_name(vg: &[Volume]) -> &str {
     &vg[0].name
 }
 
-fn print_boot_target(args: &Args) -> Result<()> {
+fn print_boot_target(args: &Args, device: &str) -> Result<()> {
     let cands = get_boot_candidates()?;
-    let default_cand = get_boot_volume(args.next)?;
+    let default_cand = get_boot_volume(device, args.next)?;
     for cand in cands {
         if (cand.part_uuid == default_cand.part_uuid) && (cand.vg_uuid == default_cand.vg_uuid) {
             println!("{}", get_vg_name(&cand.volumes));
@@ -158,9 +170,9 @@ fn print_boot_target(args: &Args) -> Result<()> {
     Ok(())
 }
 
-fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
+fn list_boot_volumes(args: &Args, device: &str) -> Result<Vec<BootCandidate>> {
     let cands = get_boot_candidates()?;
-    let default_cand = get_boot_volume(args.next)?;
+    let default_cand = get_boot_volume(device, args.next)?;
     let mut is_default: &str;
     for (i, cand) in cands.iter().enumerate() {
         if (cand.part_uuid == default_cand.part_uuid) && (cand.vg_uuid == default_cand.vg_uuid) {
@@ -173,7 +185,12 @@ fn list_boot_volumes(args: &Args) -> Result<Vec<BootCandidate>> {
     Ok(cands)
 }
 
-fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) -> Result<()> {
+fn set_boot_volume_by_ref(
+    device: &str,
+    cand: &BootCandidate,
+    args: &Args,
+    interactive: bool,
+) -> Result<()> {
     if !interactive {
         let as_what = if !args.next {
             "default boot target"
@@ -187,12 +204,12 @@ fn set_boot_volume_by_ref(cand: &BootCandidate, args: &Args, interactive: bool) 
             return Ok(());
         }
     }
-    set_boot_volume(cand, args.next)?;
+    set_boot_volume(device, cand, args.next)?;
     Ok(())
 }
 
-fn interactive_main(args: &Args) -> Result<()> {
-    let cands = list_boot_volumes(args)?;
+fn interactive_main(args: &Args, device: &str) -> Result<()> {
+    let cands = list_boot_volumes(args, device)?;
     println!("\nEnter a number to select a boot volume:");
 
     let mut input = String::new();
@@ -213,5 +230,5 @@ fn interactive_main(args: &Args) -> Result<()> {
         }
     };
 
-    set_boot_volume_by_ref(&cands[index], args, true)
+    set_boot_volume_by_ref(device, &cands[index], args, true)
 }
